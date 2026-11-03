@@ -29,7 +29,7 @@
 {%- assign vto_primary = block.settings.primary_color | default: '#16130f' -%}
 {%- assign vto_accent = block.settings.drawer_accent | default: '#2563eb' -%}
 {%- assign vto_variant = product.selected_or_first_available_variant -%}
-{%- assign vto_api = block.settings.api_base | default: shop.metafields.tryvtri.api_base.value | default: 'http://localhost:8000' -%}
+{%- assign vto_api = block.settings.api_base | default: shop.metafields.tryvtri.api_base.value | default: 'https://tryvtri-vton.vercel.app' -%}
 {%- assign vto_category = block.settings.garment_category | default: 'tops' -%}
 
 {%- comment %} Determine initial garment URL (selected variant image or product featured image) {% endcomment -%}
@@ -110,7 +110,7 @@
   "target": "section",
   "settings": [
     { "type": "header", "content": "Virtual Try-On Connection" },
-    { "type": "text", "id": "api_base", "label": "FastAPI Backend URL", "default": "http://localhost:8000", "info": "Base address of the TryVtri backend. Zero merchant credentials required." },
+    { "type": "text", "id": "api_base", "label": "FastAPI Backend URL", "default": "https://tryvtri-vton.vercel.app", "info": "Base address of the TryVtri backend. Zero merchant credentials required." },
     { "type": "select", "id": "garment_category", "label": "Garment Category", "options": [
       { "value": "tops", "label": "Tops (Shirts, Blouses, Jackets, Hoodies)" },
       { "value": "bottoms", "label": "Bottoms (Pants, Jeans, Skirts, Shorts)" },
