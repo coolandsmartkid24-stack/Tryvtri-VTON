@@ -11,13 +11,24 @@ import os
 import sys
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from PIL import Image
 
 app = FastAPI(title="TryVtri FASHN VTON 1.5 Inference Engine", version="1.5.0")
 
 _pipeline = None
+
+
+def verify_api_key(request: Request):
+    expected_key = os.environ.get("INFERENCE_API_KEY", "").strip()
+    if not expected_key:
+        return
+    provided = request.headers.get("X-Inference-Key") or request.headers.get("Authorization", "")
+    if provided.startswith("Bearer "):
+        provided = provided[7:].strip()
+    if provided != expected_key:
+        raise HTTPException(status_code=401, detail="Unauthorized: invalid or missing inference key")
 
 
 def get_pipeline():
@@ -79,12 +90,17 @@ def health():
 
 @app.post("/infer")
 async def infer(
+    request: Request,
     person_image: UploadFile = File(...),
     garment_image: UploadFile = File(...),
     category: str = Form("tops"),
-    num_inference_steps: int = Form(30),
-    guidance_scale: float = Form(2.5),
+    num_timesteps: Optional[int] = Form(None),
+    num_inference_steps: Optional[int] = Form(None),
+    guidance_scale: float = Form(1.5),
+    garment_photo_type: str = Form("model"),
+    seed: int = Form(42),
 ):
+    verify_api_key(request)
     valid_categories = {"tops", "bottoms", "one-pieces"}
     clean_cat = category.strip().lower().replace("_", "-")
     if clean_cat not in valid_categories:
@@ -92,6 +108,9 @@ async def infer(
             status_code=400,
             detail=f"Invalid category '{category}'. Must be one of: tops, bottoms, one-pieces",
         )
+
+    # Reconcile timesteps
+    steps = num_timesteps or num_inference_steps or 30
 
     try:
         person_bytes = await person_image.read()
@@ -105,8 +124,10 @@ async def infer(
             person_image=person,
             garment_image=garment,
             category=clean_cat,
-            num_inference_steps=num_inference_steps,
+            garment_photo_type=garment_photo_type if garment_photo_type in ("model", "flat-lay") else "model",
+            num_timesteps=steps,
             guidance_scale=guidance_scale,
+            seed=seed,
         )
 
         output_img = result.images[0]

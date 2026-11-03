@@ -65,7 +65,12 @@ class Settings(BaseSettings):
 
     # ----------------------------------------------------------- inference ---
     inference_base_url: str = ""
+    inference_api_key: str = ""
     inference_timeout_seconds: float = 180.0
+
+    # -------------------------------------------------------------- fal ai ---
+    fal_key: str = ""
+    fal_model_endpoint: str = "fal-ai/fashn/tryon"
 
     # -------------------------------------------------------------- uploads --
     max_upload_bytes: int = 8 * 1024 * 1024

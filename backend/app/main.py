@@ -139,9 +139,31 @@ def create_app() -> FastAPI:
         }
 
     # 6. Mount built dashboard if present
-    dist_dir = Path(__file__).resolve().parents[2] / "dashboard" / "dist"
-    if dist_dir.is_dir():
-        app.mount("/dashboard", StaticFiles(directory=str(dist_dir), html=True), name="dashboard")
+    possible_dist_dirs = [
+        Path(__file__).resolve().parents[1] / "static",
+        Path(__file__).resolve().parent / "static",
+        Path(__file__).resolve().parents[2] / "dashboard" / "dist",
+    ]
+    mounted_dist: Optional[Path] = None
+    for candidate in possible_dist_dirs:
+        if candidate.is_dir() and (candidate / "index.html").is_file():
+            app.mount("/dashboard", StaticFiles(directory=str(candidate), html=True), name="dashboard")
+            mounted_dist = candidate
+            log.info("mounted_static_dashboard", path=str(candidate))
+            break
+
+    @app.get("/", tags=["Root"])
+    async def root_redirect():
+        if mounted_dist:
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="/dashboard/")
+        return {
+            "service": "TryVtri FASHN VTON 1.5 API",
+            "version": "1.5.0",
+            "status": "online",
+            "docs": "/docs",
+            "dashboard": "/dashboard",
+        }
 
     return app
 

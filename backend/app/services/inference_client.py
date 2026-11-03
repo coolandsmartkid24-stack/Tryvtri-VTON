@@ -82,6 +82,9 @@ async def run_vton_inference(
         "garment_image": ("garment.jpg", garment_bytes, "image/jpeg"),
     }
     data = {"category": category}
+    req_headers = {}
+    if settings.inference_api_key:
+        req_headers["X-Inference-Key"] = settings.inference_api_key
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -89,6 +92,7 @@ async def run_vton_inference(
                 f"{endpoint.rstrip('/')}/infer",
                 files=files,
                 data=data,
+                headers=req_headers,
             )
             if resp.status_code != 200:
                 err_text = resp.text
@@ -113,10 +117,23 @@ async def run_vton_inference(
 
     except httpx.TimeoutException:
         raise GpuError(f"Virtual try-on model inference timed out after {timeout} seconds.")
-    except httpx.RequestError as exc:
-        # If connection refused (e.g. local dev without running inference container)
-        log.warning("inference_connection_failed_falling_back_to_local_render", error=str(exc))
+    except Exception as exc:
+        log.warning("gpu_inference_failed_evaluating_fallback", error=str(exc))
+        if settings.fal_key:
+            try:
+                from .fal_service import run_fal_tryon
+                log.info("falling_back_to_fal_ai")
+                return await run_fal_tryon(
+                    person_bytes=person_bytes,
+                    garment_bytes=garment_bytes,
+                    category=category,
+                    timeout_seconds=timeout,
+                )
+            except Exception as fal_exc:
+                log.error("fal_fallback_failed", error=str(fal_exc))
+
         if settings.environment != "production":
+            log.info("using_synthetic_preview_fallback")
             return _generate_mock_tryon_result(person_bytes, garment_bytes, category), "image/png"
         raise GpuError(f"Could not connect to inference service: {str(exc)}")
 
