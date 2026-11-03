@@ -11,4 +11,6 @@ if backend_root not in sys.path:
 
 from app.main import app
 
-__all__ = ["app"]
+max_duration = 60
+
+__all__ = ["app", "max_duration"]
