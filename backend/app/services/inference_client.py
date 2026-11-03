@@ -20,35 +20,41 @@ from ..logging_config import get_logger
 
 log = get_logger("inference_client")
 
-# FASHN VTON 1.5 officially supported categories
-VALID_CATEGORIES = {"tops", "bottoms", "one-pieces"}
+# TryVtri Multi-Category Supported Categories: Clothing, Shoes, Glasses
+VALID_CATEGORIES = {"tops", "bottoms", "one-pieces", "shoes", "glasses", "auto"}
 
 
 def validate_category(category: Optional[str]) -> str:
-    """Validate garment category according to FASHN VTON 1.5 specifications.
+    """Validate garment category according to TryVtri specifications.
 
-    Supported categories are ONLY:
-    - tops: Upper body (t-shirts, shirts, blouses, jackets, coats)
+    Supported categories:
+    - tops: Upper body (t-shirts, shirts, blouses, jackets, coats, hoodies)
     - bottoms: Lower body (pants, jeans, skirts, shorts)
     - one-pieces: Full body (dresses, jumpsuits, rompers)
-
-    Note: Accessories, sunglasses, shoes, hats, jewelry are NOT natively supported.
+    - shoes: Footwear (sneakers, boots, formal shoes)
+    - glasses: Eyewear and sunglasses
+    - auto: Zero-shot automatic category detection from product image
     """
     if not category:
         return "tops"
     cat_clean = category.strip().lower().replace("_", "-").replace(" ", "-")
-    if cat_clean in ("top", "shirt", "t-shirt", "jacket", "blouse", "coat", "hoodie", "sweater"):
+    if cat_clean in ("top", "shirt", "t-shirt", "jacket", "blouse", "coat", "hoodie", "sweater", "upper-body"):
         return "tops"
-    if cat_clean in ("bottom", "pants", "pant", "jeans", "skirt", "shorts", "trouser"):
+    if cat_clean in ("bottom", "pants", "pant", "jeans", "skirt", "shorts", "trouser", "lower-body"):
         return "bottoms"
-    if cat_clean in ("one-piece", "onepiece", "dress", "jumpsuit", "overall", "gown"):
+    if cat_clean in ("one-piece", "onepiece", "dress", "jumpsuit", "overall", "gown", "dresses"):
         return "one-pieces"
+    if cat_clean in ("shoe", "shoes", "footwear", "sneaker", "sneakers", "boot", "boots", "heels", "sandals"):
+        return "shoes"
+    if cat_clean in ("glasses", "sunglasses", "eyewear", "spectacles", "shades"):
+        return "glasses"
+    if cat_clean in ("auto", "detect"):
+        return "auto"
 
     if cat_clean not in VALID_CATEGORIES:
         raise ValidationError(
-            f"Garment category '{category}' is unsupported by FASHN VTON 1.5. "
-            f"Supported categories are: {', '.join(sorted(VALID_CATEGORIES))}. "
-            "Accessories, sunglasses, footwear, and jewelry are not supported."
+            f"Category '{category}' is unsupported. "
+            f"Supported categories are: {', '.join(sorted(VALID_CATEGORIES))}."
         )
     return cat_clean
 
