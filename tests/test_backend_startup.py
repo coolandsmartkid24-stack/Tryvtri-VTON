@@ -14,6 +14,8 @@ from backend.app.services.gpu_manager import get_gpu_manager
 def setup_memory_store():
     store = MemoryStore(limit=2, window_hours=24)
     set_store(store)
+    mgr = get_gpu_manager()
+    mgr.mock_mode = True
     yield
     set_store(None)
 

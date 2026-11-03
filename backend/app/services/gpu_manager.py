@@ -141,9 +141,9 @@ class GpuManager:
                 self._inference_endpoint = settings.inference_base_url.rstrip("/")
                 return self._inference_endpoint
 
-            # 2) If no Lium API key configured, operate in mock mode
-            if not settings.has_lium:
-                log.info("no_lium_api_key_using_mock_gpu_mode")
+            # 2) If mock mode is explicitly set OR no Lium API key configured, operate in mock mode
+            if self.mock_mode or not settings.has_lium:
+                log.info("using_mock_gpu_mode")
                 self.mock_mode = True
                 self.status = "starting"
                 self.pod_id = f"mock-pod-{int(time.time())}"
@@ -154,7 +154,7 @@ class GpuManager:
                 await self._record_start()
 
                 # Simulate short startup delay
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.01)
                 self.status = "running"
                 self._inference_endpoint = f"http://127.0.0.1:{settings.lium_inference_port}"
                 log.info("mock_gpu_pod_ready", pod_id=self.pod_id)
@@ -199,7 +199,7 @@ class GpuManager:
 
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     resp = await client.post(
-                        f"{settings.lium_api_base.rstrip('/')}/v1/pods",
+                        f"{settings.lium_api_base.rstrip('/')}/executors/rent-by-spec",
                         headers=headers,
                         json=payload,
                     )
@@ -239,7 +239,7 @@ class GpuManager:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     # Query pod info
                     resp = await client.get(
-                        f"{settings.lium_api_base.rstrip('/')}/v1/pods/{self.pod_id}",
+                        f"{settings.lium_api_base.rstrip('/')}/pods/{self.pod_id}",
                         headers=headers,
                     )
                     if resp.status_code == 200:
@@ -316,7 +316,7 @@ class GpuManager:
                 headers = {"X-API-Key": settings.lium_api_key}
                 async with httpx.AsyncClient(timeout=20.0) as client:
                     await client.delete(
-                        f"{settings.lium_api_base.rstrip('/')}/v1/pods/{self.pod_id}",
+                        f"{settings.lium_api_base.rstrip('/')}/pods/{self.pod_id}",
                         headers=headers,
                     )
             except Exception as exc:
