@@ -1,0 +1,83 @@
+{% comment %}
+  TryVtri Virtual Try-On — Production Custom Liquid Block
+  Paste this into: Shopify Theme Editor > Product page > Add block > Custom Liquid
+  Zero merchant credentials required.
+{% endcomment %}
+
+{%- if product -%}
+  {%- assign vto_variant = product.selected_or_first_available_variant -%}
+  {%- assign vto_api = 'https://tryvtri-vton.vercel.app' -%}
+  {%- assign vto_category = 'tops' -%}
+
+  {%- comment %} Determine initial garment image URL {% endcomment -%}
+  {%- assign vto_garment_url = '' -%}
+  {%- if vto_variant.featured_image -%}
+    {%- assign vto_garment_url = vto_variant.featured_image | image_url: width: 1024 -%}
+  {%- elsif product.featured_image -%}
+    {%- assign vto_garment_url = product.featured_image | image_url: width: 1024 -%}
+  {%- endif -%}
+
+  <link rel="stylesheet" href="{{ vto_api }}/dashboard/tryvtri.css">
+
+  <div class="tv-card" data-tryvtri
+       id="tv-card-{{ product.id }}"
+       style="--tv-justify:flex-start;--tv-w:100%;--tv-h:110px;--tv-r:8px;--tv-bw:1px;--tv-sh:4px;--tv-iw:100px;--tv-is:36px;--tv-ts:22px;--tv-ds:14px;--tv-bg:#fff6e5;--tv-title-c:#16130f;--tv-desc-c:#6f6a61;--tv-border:#16130f;--tv-icon-bg:#2563eb;--tv-icon-c:#ffffff;--tv-arrow-c:#16130f;margin:16px 0;"
+       data-tv-platform="shopify"
+       data-tv-api="{{ vto_api }}"
+       data-tv-shop="{{ shop.permanent_domain }}"
+       data-tv-primary="#16130f"
+       data-tv-accent="#2563eb"
+       data-tv-product-id="{{ product.id }}"
+       data-tv-product-title="{{ product.title | escape }}"
+       data-tv-product-url="{{ shop.url }}{{ product.url }}"
+       data-tv-garment-url="{{ vto_garment_url }}"
+       data-tv-variant-id="{{ vto_variant.id }}"
+       data-tv-category="{{ vto_category }}"
+       data-tv-customer-id="{{ customer.id }}"
+       data-tv-customer-email="{{ customer.email }}">
+    <div class="tv-group" style="width:100%;">
+      <button class="tv-launcher" type="button" data-tv-open aria-haspopup="dialog" aria-label="Open virtual try-on" style="display:flex;align-items:center;width:100%;padding:14px 18px;border-radius:8px;border:1px solid #16130f;background:#fff6e5;cursor:pointer;box-shadow:3px 3px 0 #16130f;">
+        <span class="tv-ico" data-tv-icon="scan" style="display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:8px;background:#2563eb;color:#fff;margin-right:14px;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true">
+            <path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/><circle cx="12" cy="10.2" r="2.6"/><path d="M7.6 18c.6-2.6 2.4-4 4.4-4s3.8 1.4 4.4 4"/>
+          </svg>
+        </span>
+        <span class="tv-txt" style="display:flex;flex-direction:column;text-align:left;flex:1;">
+          <span class="tv-t1" style="font-size:18px;font-weight:700;color:#16130f;">Try It On Me</span>
+          <span class="tv-t2" style="font-size:13px;color:#6f6a61;">See this garment on your photo in seconds</span>
+        </span>
+        <svg class="tv-arrow" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#16130f" stroke-width="2.2" stroke-linecap="square" aria-hidden="true">
+          <path d="M4 12h15M13 6l6 6-6 6"/>
+        </svg>
+      </button>
+      <div class="tv-credit" style="font-size:11px;color:#888;margin-top:6px;display:flex;align-items:center;gap:4px;">
+        <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 2l1.8 5.6L19.4 9.4 13.8 11.2 12 17l-1.8-5.8L4.6 9.4l5.6-1.8L12 2z"/>
+        </svg>
+        <span>Powered by <a href="https://fit.tryvtri.com/" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">TryVtri</a></span>
+      </div>
+    </div>
+
+    {%- comment %} Automatic Storefront Product & Variant JSON context {% endcomment -%}
+    <script type="application/json" data-tv-product-context>
+      {
+        "productId": {{ product.id | json }},
+        "productTitle": {{ product.title | json }},
+        "featuredImageUrl": {%- if product.featured_image -%}{{ product.featured_image | image_url: width: 1024 | json }}{%- else -%}null{%- endif -%},
+        "selectedVariantId": {{ vto_variant.id | json }},
+        "category": {{ vto_category | json }},
+        "variants": [
+          {%- for variant in product.variants -%}
+            {
+              "id": {{ variant.id | json }},
+              "title": {{ variant.title | json }},
+              "imageUrl": {%- if variant.featured_image -%}{{ variant.featured_image | image_url: width: 1024 | json }}{%- elsif product.featured_image -%}{{ product.featured_image | image_url: width: 1024 | json }}{%- else -%}null{%- endif -%}
+            }{%- unless forloop.last -%},{%- endunless -%}
+          {%- endfor -%}
+        ]
+      }
+    </script>
+  </div>
+
+  <script src="{{ vto_api }}/dashboard/tryvtri.js" defer></script>
+{%- endif -%}
