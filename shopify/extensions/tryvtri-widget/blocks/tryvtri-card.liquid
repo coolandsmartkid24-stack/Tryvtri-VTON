@@ -1,0 +1,136 @@
+{% comment %}
+  TryVtri Virtual Try-On | Zero-Credential Shopify Storefront Block
+  File: blocks/tryvtri-card.liquid  (Shopify theme app extension)
+
+  ZERO API CREDENTIAL REQUIREMENT:
+  - No Shopify API key, Admin API token, OAuth, or merchant credentials required.
+  - Automatically identifies product ID, title, featured image, variants, and variant images.
+  - Automatically listens for variant changes and updates the garment image.
+  - Passes publicly accessible Shopify CDN image URLs directly to the FastAPI backend.
+{% endcomment %}
+{%- assign vto_btn_text = block.settings.btn_text | default: 'Try It On Me' -%}
+{%- assign vto_btn_sub = block.settings.btn_sub | default: 'See it on you in seconds' -%}
+{%- assign vto_bg = block.settings.btn_bg | default: '#fff6e5' -%}
+{%- assign vto_title_c = block.settings.btn_title_color | default: '#16130f' -%}
+{%- assign vto_desc_c = block.settings.btn_desc_color | default: '#6f6a61' -%}
+{%- assign vto_border = block.settings.btn_border | default: '#16130f' -%}
+{%- assign vto_icon_bg = block.settings.btn_icon_bg | default: '#2563eb' -%}
+{%- assign vto_icon_c = block.settings.btn_icon_color | default: '#ffffff' -%}
+{%- assign vto_arrow_c = block.settings.btn_arrow_color | default: '#16130f' -%}
+{%- assign vto_width = block.settings.btn_width | default: 100 -%}
+{%- assign vto_height = block.settings.btn_height | default: 110 -%}
+{%- assign vto_icon_w = block.settings.btn_icon_width | default: 100 -%}
+{%- assign vto_icon_s = block.settings.btn_icon_size | default: 36 -%}
+{%- assign vto_title_s = block.settings.btn_title_size | default: 24 -%}
+{%- assign vto_desc_s = block.settings.btn_desc_size | default: 15 -%}
+{%- assign vto_radius = block.settings.btn_radius | default: 8 -%}
+{%- assign vto_bw = block.settings.btn_border_width | default: 1 -%}
+{%- assign vto_shadow = block.settings.btn_shadow | default: 4 -%}
+{%- assign vto_primary = block.settings.primary_color | default: '#16130f' -%}
+{%- assign vto_accent = block.settings.drawer_accent | default: '#2563eb' -%}
+{%- assign vto_variant = product.selected_or_first_available_variant -%}
+{%- assign vto_api = block.settings.api_base | default: shop.metafields.tryvtri.api_base.value | default: 'http://localhost:8000' -%}
+{%- assign vto_category = block.settings.garment_category | default: 'tops' -%}
+
+{%- comment %} Determine initial garment URL (selected variant image or product featured image) {% endcomment -%}
+{%- assign vto_garment_url = '' -%}
+{%- if vto_variant.featured_image -%}
+  {%- assign vto_garment_url = vto_variant.featured_image | image_url: width: 1024 -%}
+{%- elsif product.featured_image -%}
+  {%- assign vto_garment_url = product.featured_image | image_url: width: 1024 -%}
+{%- endif -%}
+
+{{ 'tryvtri.css' | asset_url | stylesheet_tag }}
+
+<div class="tv-card" data-tryvtri {{ block.shopify_attributes }}
+     id="tv-card-{{ product.id }}"
+     style="--tv-justify:flex-start;--tv-w:{{ vto_width }}%;--tv-h:{{ vto_height }}px;--tv-r:{{ vto_radius }}px;--tv-bw:{{ vto_bw }}px;--tv-sh:{{ vto_shadow }}px;--tv-iw:{{ vto_icon_w }}px;--tv-is:{{ vto_icon_s }}px;--tv-ts:{{ vto_title_s }}px;--tv-ds:{{ vto_desc_s }}px;--tv-bg:{{ vto_bg }};--tv-title-c:{{ vto_title_c }};--tv-desc-c:{{ vto_desc_c }};--tv-border:{{ vto_border }};--tv-icon-bg:{{ vto_icon_bg }};--tv-icon-c:{{ vto_icon_c }};--tv-arrow-c:{{ vto_arrow_c }};"
+     data-tv-platform="shopify"
+     data-tv-api="{{ vto_api | escape }}"
+     data-tv-shop="{{ shop.permanent_domain }}"
+     data-tv-primary="{{ vto_primary }}"
+     data-tv-accent="{{ vto_accent }}"
+     data-tv-product-id="{{ product.id }}"
+     data-tv-product-title="{{ product.title | escape }}"
+     data-tv-product-url="{{ shop.url }}{{ product.url }}"
+     data-tv-garment-url="{{ vto_garment_url }}"
+     data-tv-variant-id="{{ vto_variant.id }}"
+     data-tv-category="{{ vto_category }}"
+     data-tv-customer-id="{{ customer.id }}"
+     data-tv-customer-email="{{ customer.email }}">
+  <div class="tv-group">
+    <button class="tv-launcher" type="button" data-tv-open aria-haspopup="dialog" aria-label="Open virtual try-on">
+      <span class="tv-ico" data-tv-icon="scan">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" aria-hidden="true">
+          <path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/><circle cx="12" cy="10.2" r="2.6"/><path d="M7.6 18c.6-2.6 2.4-4 4.4-4s3.8 1.4 4.4 4"/>
+        </svg>
+      </span>
+      <span class="tv-txt">
+        <span class="tv-t1">{{ vto_btn_text | escape }}</span>
+        {% if vto_btn_sub != blank %}<span class="tv-t2">{{ vto_btn_sub | escape }}</span>{% endif %}
+      </span>
+      <svg class="tv-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
+        <path d="M4 12h15M13 6l6 6-6 6"/>
+      </svg>
+    </button>
+    <div class="tv-credit">
+      <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 2l1.8 5.6L19.4 9.4 13.8 11.2 12 17l-1.8-5.8L4.6 9.4l5.6-1.8L12 2z"/>
+      </svg>
+      <span>Powered by <a href="https://fit.tryvtri.com/" target="_blank" rel="noopener">TryVtri</a></span>
+    </div>
+  </div>
+
+  {%- comment %} Automatic Storefront Product & Variant JSON context {% endcomment -%}
+  <script type="application/json" data-tv-product-context>
+    {
+      "productId": {{ product.id | json }},
+      "productTitle": {{ product.title | json }},
+      "featuredImageUrl": {{ product.featured_image | image_url: width: 1024 | json }},
+      "selectedVariantId": {{ vto_variant.id | json }},
+      "category": {{ vto_category | json }},
+      "variants": [
+        {%- for variant in product.variants -%}
+          {
+            "id": {{ variant.id | json }},
+            "title": {{ variant.title | json }},
+            "imageUrl": {%- if variant.featured_image -%}{{ variant.featured_image | image_url: width: 1024 | json }}{%- else -%}{{ product.featured_image | image_url: width: 1024 | json }}{%- endif -%}
+          }{%- unless forloop.last -%},{%- endunless -%}
+        {%- endfor -%}
+      ]
+    }
+  </script>
+</div>
+
+<script src="{{ 'tryvtri.js' | asset_url }}" defer></script>
+
+{% schema %}
+{
+  "name": "Try-On Card",
+  "target": "section",
+  "settings": [
+    { "type": "header", "content": "Virtual Try-On Connection" },
+    { "type": "text", "id": "api_base", "label": "FastAPI Backend URL", "default": "http://localhost:8000", "info": "Base address of the TryVtri backend. Zero merchant credentials required." },
+    { "type": "select", "id": "garment_category", "label": "Garment Category", "options": [
+      { "value": "tops", "label": "Tops (Shirts, Blouses, Jackets, Hoodies)" },
+      { "value": "bottoms", "label": "Bottoms (Pants, Jeans, Skirts, Shorts)" },
+      { "value": "one-pieces", "label": "One-Pieces (Dresses, Jumpsuits, Overalls)" }
+    ], "default": "tops", "info": "FASHN VTON 1.5 natively supports tops, bottoms, and one-pieces. Accessories and sunglasses are not supported." },
+    { "type": "header", "content": "Text" },
+    { "type": "text", "id": "btn_text", "label": "Button text", "default": "Try It On Me" },
+    { "type": "text", "id": "btn_sub", "label": "Description under text", "default": "See it on you in seconds" },
+    { "type": "header", "content": "Appearance" },
+    { "type": "color", "id": "btn_bg", "label": "Background", "default": "#fff6e5" },
+    { "type": "color", "id": "btn_title_color", "label": "Text colour", "default": "#16130f" },
+    { "type": "color", "id": "btn_desc_color", "label": "Description colour", "default": "#6f6a61" },
+    { "type": "color", "id": "btn_border", "label": "Border colour", "default": "#16130f" },
+    { "type": "color", "id": "btn_icon_bg", "label": "Icon tile colour", "default": "#2563eb" },
+    { "type": "color", "id": "btn_icon_color", "label": "Icon colour", "default": "#ffffff" },
+    { "type": "color", "id": "primary_color", "label": "Popup button colour", "default": "#16130f" },
+    { "type": "color", "id": "drawer_accent", "label": "Popup accent colour", "default": "#2563eb" },
+    { "type": "range", "id": "btn_width", "min": 30, "max": 100, "step": 5, "unit": "%", "label": "Width", "default": 100 },
+    { "type": "range", "id": "btn_height", "min": 48, "max": 200, "step": 2, "unit": "px", "label": "Height", "default": 110 },
+    { "type": "range", "id": "btn_radius", "min": 0, "max": 40, "step": 2, "unit": "px", "label": "Corner radius", "default": 8 }
+  ]
+}
+{% endschema %}

@@ -104,3 +104,63 @@ uv.lock
 *.bmp
 *.tiff
 *.tif
+
+# ---------------------------------------------------------------------------
+# TryVtri additions
+# ---------------------------------------------------------------------------
+
+# Real environment files (the .env.example above IS committed)
+.env
+.env.*
+!.env.example
+env/.env
+
+# Secrets / credentials
+*.pem
+*.key
+secrets/
+credentials.json
+supabase/.temp/
+
+# Model weights (already covered by weights/ but be explicit)
+models/
+checkpoints/
+*.safetensors.index.json
+
+# Generated customer / try-on images (never publish these)
+generated/
+tmp/
+temp/
+.tryvtri-temp/
+uploads/
+backend/app/storage/
+*.dataurl.txt
+
+# Node / React dashboard
+node_modules/
+dashboard/dist/
+dashboard/build/
+dashboard/.vite/
+*.tsbuildinfo
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Test / tooling artefacts
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+coverage.xml
+
+# Provider / API scratch
+lium-openapi.json
+*.openapi.json
+
+# Logs that may contain request ids + customer identifiers
+*.log
+logs/
+!logs/.gitkeep

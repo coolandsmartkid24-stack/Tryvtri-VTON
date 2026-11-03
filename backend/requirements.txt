@@ -1,0 +1,24 @@
+# TryVtri FastAPI backend — ordinary (CPU / non-CUDA) dependencies.
+# PyTorch is deliberately NOT installed here: the backend never runs the model.
+# Install the CUDA build only inside the GPU inference image (see
+# docs/GPU_DEPLOYMENT.md and tryon_service/requirements-gpu.txt).
+
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+python-multipart==0.0.20
+pydantic==2.11.7
+pydantic-settings==2.10.1
+httpx==0.28.1
+supabase==2.15.1
+postgrest==0.17.6
+PyJWT==2.10.1
+Pillow==11.3.0
+numpy==2.3.4
+python-dotenv==1.1.1
+structlog==25.4.0
+
+# --- test only ---
+pytest==8.4.2
+pytest-asyncio==1.2.0
+anyio==4.11.0
+respx==0.23.1
