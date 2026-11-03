@@ -20,8 +20,8 @@ from ..logging_config import get_logger
 
 log = get_logger("inference_client")
 
-# TryVtri Multi-Category Supported Categories: Clothing, Shoes, Glasses
-VALID_CATEGORIES = {"tops", "bottoms", "one-pieces", "shoes", "glasses", "auto"}
+# TryVtri Multi-Category Supported Categories: Clothing, Shoes, Glasses, Hats
+VALID_CATEGORIES = {"tops", "bottoms", "one-pieces", "shoes", "glasses", "hats", "auto"}
 
 
 def validate_category(category: Optional[str]) -> str:
@@ -33,6 +33,7 @@ def validate_category(category: Optional[str]) -> str:
     - one-pieces: Full body (dresses, jumpsuits, rompers)
     - shoes: Footwear (sneakers, boots, formal shoes)
     - glasses: Eyewear and sunglasses
+    - hats: Headwear, caps, and beanies
     - auto: Zero-shot automatic category detection from product image
     """
     if not category:
@@ -48,6 +49,8 @@ def validate_category(category: Optional[str]) -> str:
         return "shoes"
     if cat_clean in ("glasses", "sunglasses", "eyewear", "spectacles", "shades"):
         return "glasses"
+    if cat_clean in ("hat", "hats", "cap", "caps", "beanie", "headwear", "fedora", "beret"):
+        return "hats"
     if cat_clean in ("auto", "detect"):
         return "auto"
 

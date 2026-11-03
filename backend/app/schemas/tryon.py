@@ -34,8 +34,8 @@ class ProductContextResponse(BaseModel):
     garment_url: str
     category: str
     is_valid: bool
-    supported_categories: List[str] = ["tops", "bottoms", "one-pieces"]
-    unsupported_notice: str = "Accessories, sunglasses, footwear, and jewelry are not supported."
+    supported_categories: List[str] = ["tops", "bottoms", "one-pieces", "shoes", "glasses", "hats"]
+    unsupported_notice: str = "Accessories, jewelry, and non-apparel items are not supported."
 
 
 class CheckUsageResponse(BaseModel):
