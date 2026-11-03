@@ -2,10 +2,12 @@
 
 Runs inside the Lium GPU pod (Ubuntu 22.04+ with NVIDIA RTX 5080 and CUDA 12.x).
 Loads FASHN VTON 1.5 in bfloat16 on the GPU and serves fast try-on requests.
+Supports on-demand sleep and wake lifecycle to conserve power and VRAM when idle.
 """
 
 from __future__ import annotations
 
+import gc
 import io
 import os
 import sys
@@ -49,9 +51,31 @@ def get_pipeline():
     return _pipeline
 
 
+def unload_pipeline():
+    """Unload model from GPU memory and clear CUDA cache to enter low-power sleep."""
+    global _pipeline
+    if _pipeline is not None:
+        try:
+            del _pipeline
+            _pipeline = None
+            gc.collect()
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
+            except Exception:
+                pass
+            print("FASHN VTON 1.5 pipeline unloaded and VRAM cleared.")
+        except Exception as exc:
+            print(f"Warning during pipeline unload: {exc}", file=sys.stderr)
+            _pipeline = None
+
+
 @app.on_event("startup")
 async def startup_event():
-    # Warm up / check weights on startup if GPU available
+    # Detect GPU hardware on startup
     try:
         import torch
 
@@ -67,6 +91,8 @@ def health():
     gpu_available = False
     gpu_name = None
     vram_free_gb = None
+    vram_allocated_mb = 0.0
+    pipeline_loaded = _pipeline is not None
 
     try:
         import torch
@@ -76,15 +102,68 @@ def health():
             gpu_name = torch.cuda.get_device_name(0)
             free_mem, total_mem = torch.cuda.mem_get_info()
             vram_free_gb = round(free_mem / (1024**3), 2)
+            vram_allocated_mb = round(torch.cuda.memory_allocated() / (1024**2), 2)
     except Exception:
         pass
 
     return {
         "status": "healthy",
         "service": "fashn-vton-1.5-inference",
+        "gpu_state": "ready" if pipeline_loaded else "sleeping",
+        "pipeline_loaded": pipeline_loaded,
         "gpu_available": gpu_available,
         "gpu_name": gpu_name,
         "vram_free_gb": vram_free_gb,
+        "vram_allocated_mb": vram_allocated_mb,
+    }
+
+
+@app.post("/sleep")
+def sleep_gpu(request: Request):
+    """Admin or lifecycle manager trigger to put GPU into low-power sleep mode."""
+    verify_api_key(request)
+    unload_pipeline()
+    vram_free = None
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            free_mem, _ = torch.cuda.mem_get_info()
+            vram_free = round(free_mem / (1024**3), 2)
+    except Exception:
+        pass
+    return {
+        "status": "sleeping",
+        "service": "fashn-vton-1.5-inference",
+        "pipeline_loaded": False,
+        "vram_free_gb": vram_free,
+        "message": "GPU pipeline unloaded and VRAM cleared.",
+    }
+
+
+@app.post("/wake")
+def wake_gpu(request: Request):
+    """Pre-warm or wake the GPU pipeline on-demand."""
+    verify_api_key(request)
+    get_pipeline()
+    vram_free = None
+    gpu_name = None
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            free_mem, _ = torch.cuda.mem_get_info()
+            vram_free = round(free_mem / (1024**3), 2)
+    except Exception:
+        pass
+    return {
+        "status": "ready",
+        "service": "fashn-vton-1.5-inference",
+        "pipeline_loaded": True,
+        "gpu_name": gpu_name,
+        "vram_free_gb": vram_free,
+        "message": "GPU pipeline loaded and ready for inference.",
     }
 
 

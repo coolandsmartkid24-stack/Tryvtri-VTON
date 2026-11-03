@@ -4,10 +4,10 @@ Manages the lifecycle of an NVIDIA RTX 5080 GPU on Lium:
 - Activates GPU on-demand when a customer requests virtual try-on.
 - Protects against duplicate pod launches via an asyncio lock.
 - Tracks active and queued requests.
-- Auto-terminates GPU after 10 minutes of inactivity (no active or queued requests).
+- Auto-terminates / sleeps GPU after 10 minutes of inactivity (no active or queued requests).
 - Never shuts down while an inference request is running.
 - Tracks startup, shutdown, runtime, and estimated spend at ~$0.36/hour.
-- Records all GPU sessions to Supabase `gpu_usage` table.
+- Records all GPU sessions to Supabase `gpu_sessions` / `gpu_usage` table.
 - Supports mock / local mode for test-suites and local development without incurring charges.
 """
 
@@ -104,10 +104,9 @@ class GpuManager:
             try:
                 log.info("gpu_idle_timer_started", seconds=timeout)
                 await asyncio.sleep(timeout)
-                async with self._lock:
-                    if self.active_requests == 0 and self.queued_requests == 0 and self.status == "running":
-                        log.info("gpu_idle_timeout_reached_stopping")
-                        await self.stop_gpu(reason="idle_timeout")
+                if self.active_requests == 0 and self.queued_requests == 0 and self.status == "running":
+                    log.info("gpu_idle_timeout_reached_stopping")
+                    await self.stop_gpu(reason="idle_timeout")
             except asyncio.CancelledError:
                 log.debug("gpu_idle_timer_cancelled")
 
@@ -131,14 +130,40 @@ class GpuManager:
 
             await self._cancel_idle_timer()
 
-            # 1) If fixed inference URL configured, use it directly (e.g. dev/staging container)
-            if settings.using_fixed_inference:
-                log.info("using_fixed_inference_endpoint", url=settings.inference_base_url)
-                self.status = "running"
-                self.pod_id = "fixed-endpoint"
-                self.pod_name = "local-tryon-service"
+            # 1) If fixed inference URL configured (e.g. Lium RTX 5080 pod)
+            if settings.using_fixed_inference and not self.mock_mode:
+                log.info("waking_gpu_fixed_inference_endpoint", url=settings.inference_base_url)
+                self.status = "starting"
                 self.started_at = _now()
+                self.pod_id = "rtx5080-lium"
+                self.pod_name = "lium-rtx5080-tryvtri"
                 self._inference_endpoint = settings.inference_base_url.rstrip("/")
+
+                await self._record_start()
+
+                # Verify health and wake pipeline
+                headers = {}
+                if settings.inference_api_key:
+                    headers["X-Inference-Key"] = settings.inference_api_key
+
+                try:
+                    async with httpx.AsyncClient(timeout=20.0) as client:
+                        # Attempt wake endpoint
+                        try:
+                            await client.post(f"{self._inference_endpoint}/wake", headers=headers)
+                        except Exception:
+                            pass
+                        # Confirm healthy
+                        h_resp = await client.get(f"{self._inference_endpoint}/health")
+                        if h_resp.status_code != 200:
+                            raise GpuError(f"GPU inference service health check returned HTTP {h_resp.status_code}")
+                except Exception as exc:
+                    self.status = "error"
+                    await self._record_error(str(exc))
+                    raise GpuError(f"Failed to connect to GPU inference service: {str(exc)}")
+
+                self.status = "running"
+                log.info("gpu_pod_active_and_ready", endpoint=self._inference_endpoint)
                 return self._inference_endpoint
 
             # 2) If mock mode is explicitly set OR no Lium API key configured, operate in mock mode
@@ -160,7 +185,7 @@ class GpuManager:
                 log.info("mock_gpu_pod_ready", pod_id=self.pod_id)
                 return self._inference_endpoint
 
-            # 3) Real Lium Cloud Pod lifecycle
+            # 3) Real Lium Cloud Pod dynamic lifecycle (Rent on-demand via Lium API)
             self.status = "starting"
             self.started_at = _now()
             self.pod_name = f"{settings.lium_pod_name_prefix}-{int(time.time())}"
@@ -237,7 +262,6 @@ class GpuManager:
             await asyncio.sleep(5)
             try:
                 async with httpx.AsyncClient(timeout=10.0) as client:
-                    # Query pod info
                     resp = await client.get(
                         f"{settings.lium_api_base.rstrip('/')}/pods/{self.pod_id}",
                         headers=headers,
@@ -246,7 +270,6 @@ class GpuManager:
                         pod_info = resp.json()
                         state = pod_info.get("status") or pod_info.get("state")
                         if state in ("running", "active"):
-                            # Determine host & port
                             host = settings.lium_inference_host or pod_info.get("ip") or pod_info.get("host")
                             port = settings.lium_inference_port
                             ports_mapping = pod_info.get("ports_mapping") or {}
@@ -255,7 +278,6 @@ class GpuManager:
 
                             if host:
                                 endpoint = f"http://{host}:{port}"
-                                # Test health
                                 try:
                                     h_resp = await client.get(f"{endpoint}/health", timeout=3.0)
                                     if h_resp.status_code == 200:
@@ -268,7 +290,7 @@ class GpuManager:
         raise GpuError(f"GPU pod startup timed out after {timeout} seconds.")
 
     async def stop_gpu(self, reason: str = "manual") -> None:
-        """Shut down the GPU instance if no active requests are executing."""
+        """Shut down or sleep the GPU instance if no active requests are executing."""
         if self.status == "stopped":
             return
 
@@ -282,7 +304,6 @@ class GpuManager:
                 return
 
             await self._cancel_idle_timer()
-            prev_status = self.status
             self.status = "stopping"
             self.stopped_at = _now()
 
@@ -305,13 +326,30 @@ class GpuManager:
 
             settings = get_settings()
 
-            if self.mock_mode or settings.using_fixed_inference or not self.pod_id:
-                # Mock or fixed shutdown
+            # If fixed inference endpoint: send sleep signal to clear VRAM and enter standby
+            if settings.using_fixed_inference and not self.mock_mode and self._inference_endpoint:
+                try:
+                    headers = {}
+                    if settings.inference_api_key:
+                        headers["X-Inference-Key"] = settings.inference_api_key
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        await client.post(f"{self._inference_endpoint}/sleep", headers=headers)
+                except Exception as exc:
+                    log.warning("gpu_sleep_notification_failed", error=str(exc))
+
                 self.status = "stopped"
                 self._inference_endpoint = None
                 await self._record_stop(duration_seconds, cost)
                 return
 
+            # If mock mode
+            if self.mock_mode or not self.pod_id:
+                self.status = "stopped"
+                self._inference_endpoint = None
+                await self._record_stop(duration_seconds, cost)
+                return
+
+            # Dynamic Lium pod termination
             try:
                 headers = {"X-API-Key": settings.lium_api_key}
                 async with httpx.AsyncClient(timeout=20.0) as client:
