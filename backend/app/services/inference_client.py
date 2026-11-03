@@ -95,56 +95,65 @@ async def run_vton_inference(
     if settings.inference_api_key:
         req_headers["X-Inference-Key"] = settings.inference_api_key
 
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                f"{endpoint.rstrip('/')}/infer",
-                files=files,
-                data=data,
-                headers=req_headers,
-            )
-            if resp.status_code != 200:
-                err_text = resp.text
-                log.error("gpu_inference_failed", status=resp.status_code, body=err_text)
-                raise GpuError(f"Try-on generation failed on GPU: HTTP {resp.status_code} - {err_text}")
-
-            content_type = resp.headers.get("content-type", "")
-            if "image" in content_type:
-                return resp.content, content_type
-
-            # Check if JSON with base64 result
-            body = resp.json()
-            if "output_base64" in body:
-                result_bytes = base64.b64decode(body["output_base64"])
-                return result_bytes, "image/png"
-            if "result_url" in body:
-                # Fetch output image from result_url
-                img_resp = await client.get(body["result_url"], timeout=30.0)
-                return img_resp.content, img_resp.headers.get("content-type", "image/png")
-
-            raise GpuError("Inference service did not return an image.")
-
-    except httpx.TimeoutException:
-        raise GpuError(f"Virtual try-on model inference timed out after {timeout} seconds.")
-    except Exception as exc:
-        log.warning("gpu_inference_failed_evaluating_fallback", error=str(exc))
-        if settings.fal_key:
-            try:
-                from .fal_service import run_fal_tryon
-                log.info("falling_back_to_fal_ai")
-                return await run_fal_tryon(
-                    person_bytes=person_bytes,
-                    garment_bytes=garment_bytes,
-                    category=category,
-                    timeout_seconds=timeout,
+    max_retries = 2
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(
+                    f"{endpoint.rstrip('/')}/infer",
+                    files=files,
+                    data=data,
+                    headers=req_headers,
                 )
-            except Exception as fal_exc:
-                log.error("fal_fallback_failed", error=str(fal_exc))
+                if resp.status_code != 200:
+                    err_text = resp.text
+                    log.error("gpu_inference_failed", status=resp.status_code, body=err_text)
+                    raise GpuError(f"Try-on generation failed on GPU: HTTP {resp.status_code} - {err_text}")
 
-        if settings.environment != "production":
-            log.info("using_synthetic_preview_fallback")
-            return _generate_mock_tryon_result(person_bytes, garment_bytes, category), "image/png"
-        raise GpuError(f"Could not connect to inference service: {str(exc)}")
+                content_type = resp.headers.get("content-type", "")
+                if "image" in content_type:
+                    return resp.content, content_type
+
+                # Check if JSON with base64 result
+                body = resp.json()
+                if "output_base64" in body:
+                    result_bytes = base64.b64decode(body["output_base64"])
+                    return result_bytes, "image/png"
+                if "result_url" in body:
+                    # Fetch output image from result_url
+                    img_resp = await client.get(body["result_url"], timeout=30.0)
+                    return img_resp.content, img_resp.headers.get("content-type", "image/png")
+
+                raise GpuError("Inference service did not return an image.")
+
+        except httpx.ConnectError as ce:
+            if attempt < max_retries:
+                log.warning("gpu_inference_connect_retry", attempt=attempt, error=str(ce))
+                import asyncio
+                await asyncio.sleep(2.0)
+                continue
+            raise
+        except httpx.TimeoutException:
+            raise GpuError(f"Virtual try-on model inference timed out after {timeout} seconds.")
+        except Exception as exc:
+            log.warning("gpu_inference_failed_evaluating_fallback", error=str(exc))
+            if settings.fal_key:
+                try:
+                    from .fal_service import run_fal_tryon
+                    log.info("falling_back_to_fal_ai")
+                    return await run_fal_tryon(
+                        person_bytes=person_bytes,
+                        garment_bytes=garment_bytes,
+                        category=category,
+                        timeout_seconds=timeout,
+                    )
+                except Exception as fal_exc:
+                    log.error("fal_fallback_failed", error=str(fal_exc))
+
+            if settings.environment != "production":
+                log.info("using_synthetic_preview_fallback")
+                return _generate_mock_tryon_result(person_bytes, garment_bytes, category), "image/png"
+            raise GpuError(f"Could not connect to inference service: {str(exc)}")
 
 
 def _generate_mock_tryon_result(person_bytes: bytes, garment_bytes: bytes, category: str) -> bytes:

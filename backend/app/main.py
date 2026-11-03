@@ -147,13 +147,30 @@ def create_app() -> FastAPI:
     mounted_dist: Optional[Path] = None
     for candidate in possible_dist_dirs:
         if candidate.is_dir() and (candidate / "index.html").is_file():
-            app.mount("/dashboard", StaticFiles(directory=str(candidate), html=True), name="dashboard")
             mounted_dist = candidate
-            log.info("mounted_static_dashboard", path=str(candidate))
             assets_dir = candidate / "assets"
             if assets_dir.is_dir():
+                app.mount("/dashboard/assets", StaticFiles(directory=str(assets_dir)), name="dashboard_assets")
                 app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+            app.mount("/dashboard", StaticFiles(directory=str(candidate), html=True), name="dashboard")
+            log.info("mounted_static_dashboard", path=str(candidate))
             break
+
+    if mounted_dist:
+        from fastapi.responses import FileResponse
+
+        @app.get("/dashboard", include_in_schema=False)
+        @app.get("/dashboard/", include_in_schema=False)
+        async def serve_dashboard_page():
+            return FileResponse(
+                mounted_dist / "index.html",
+                media_type="text/html",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
 
     @app.get("/", tags=["Root"])
     async def root_redirect():

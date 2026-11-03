@@ -5,6 +5,11 @@
 const TOKEN_KEY = 'tryvtri_admin_token';
 const USERNAME_KEY = 'tryvtri_admin_user';
 
+let onUnauthorizedCb = null;
+export function setOnUnauthorized(cb) {
+  onUnauthorizedCb = cb;
+}
+
 export const auth = {
   getToken: () => localStorage.getItem(TOKEN_KEY),
   getUser: () => localStorage.getItem(USERNAME_KEY),
@@ -30,7 +35,9 @@ async function fetchWithAuth(url, options = {}) {
   const response = await fetch(url, { ...options, headers });
   if (response.status === 401) {
     auth.clearSession();
-    window.location.reload();
+    if (onUnauthorizedCb) {
+      onUnauthorizedCb();
+    }
     throw new Error('Session expired. Please sign in again.');
   }
 

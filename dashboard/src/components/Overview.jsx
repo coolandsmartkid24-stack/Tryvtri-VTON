@@ -158,7 +158,7 @@ export default function Overview({ onNavigate }) {
             <span className="kpi-title">Est. GPU Spending</span>
             <DollarSign size={20} color="#10b981" />
           </div>
-          <div className="kpi-value">${gpu.total_estimated_cost_usd?.toFixed(4) ?? '0.0000'}</div>
+          <div className="kpi-value">${Number(gpu.total_estimated_cost_usd || 0).toFixed(4)}</div>
           <div className="kpi-sub">Lium RTX 5080 at ~$0.36/hour</div>
         </div>
       </div>

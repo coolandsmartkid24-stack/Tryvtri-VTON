@@ -141,26 +141,36 @@ class GpuManager:
 
                 await self._record_start()
 
-                # Verify health and wake pipeline
+                # Verify health and wake pipeline with retry loop
                 headers = {}
                 if settings.inference_api_key:
                     headers["X-Inference-Key"] = settings.inference_api_key
 
-                try:
-                    async with httpx.AsyncClient(timeout=20.0) as client:
-                        # Attempt wake endpoint
-                        try:
-                            await client.post(f"{self._inference_endpoint}/wake", headers=headers)
-                        except Exception:
-                            pass
-                        # Confirm healthy
-                        h_resp = await client.get(f"{self._inference_endpoint}/health")
-                        if h_resp.status_code != 200:
-                            raise GpuError(f"GPU inference service health check returned HTTP {h_resp.status_code}")
-                except Exception as exc:
+                is_healthy = False
+                last_exc = None
+                for attempt in range(1, 6):
+                    try:
+                        async with httpx.AsyncClient(timeout=10.0) as client:
+                            # Attempt wake endpoint
+                            try:
+                                await client.post(f"{self._inference_endpoint}/wake", headers=headers, timeout=5.0)
+                            except Exception:
+                                pass
+                            # Confirm healthy
+                            h_resp = await client.get(f"{self._inference_endpoint}/health", timeout=5.0)
+                            if h_resp.status_code == 200:
+                                is_healthy = True
+                                break
+                    except Exception as exc:
+                        last_exc = exc
+                        log.warning("gpu_health_check_attempt_failed", attempt=attempt, error=str(exc))
+                        if attempt < 5:
+                            await asyncio.sleep(2.0)
+
+                if not is_healthy:
                     self.status = "error"
-                    await self._record_error(str(exc))
-                    raise GpuError(f"Failed to connect to GPU inference service: {str(exc)}")
+                    await self._record_error(str(last_exc or "Health check failed"))
+                    raise GpuError(f"Failed to connect to GPU inference service: {str(last_exc)}")
 
                 self.status = "running"
                 log.info("gpu_pod_active_and_ready", endpoint=self._inference_endpoint)
