@@ -108,7 +108,21 @@ async def run_vton_inference(
                 if resp.status_code != 200:
                     err_text = resp.text
                     log.error("gpu_inference_failed", status=resp.status_code, body=err_text)
-                    raise GpuError(f"Try-on generation failed on GPU: HTTP {resp.status_code} - {err_text}")
+                    # Parse user-friendly messages from the GPU response
+                    try:
+                        import json as _json
+                        err_body = _json.loads(err_text)
+                        err_detail = err_body.get("detail", err_text)
+                    except Exception:
+                        err_detail = err_text
+                    # Surface face-detection issues as user-friendly ValidationError
+                    if "face" in err_detail.lower() or "No face" in err_detail:
+                        from ..core.errors import ValidationError
+                        raise ValidationError(
+                            "We couldn't detect a face in your photo. "
+                            "Please use a clear front-facing portrait or upper-body photo where your face is fully visible."
+                        )
+                    raise GpuError(f"Try-on generation failed on GPU: HTTP {resp.status_code} - {err_detail}")
 
                 content_type = resp.headers.get("content-type", "")
                 if "image" in content_type:

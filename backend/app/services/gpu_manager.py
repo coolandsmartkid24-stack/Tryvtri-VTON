@@ -16,7 +16,9 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import json
 import os
+import re
 import time
 from typing import Any, AsyncGenerator, Dict, Optional
 
@@ -27,6 +29,86 @@ from ..core.errors import GpuError
 from ..logging_config import get_logger
 
 log = get_logger("gpu_manager")
+
+# Internal ports the GPU services listen on:
+#  - 8888: IDM-VTON multi-category API (start_idm_vton.sh / api/main.py)
+#  - 8000: FASHN VTON 1.5 inference service (tryon_service/app.py)
+_POD_INTERNAL_PORTS = ("8888", "8000")
+
+
+def _parse_ports_mapping(raw: Any) -> Dict[str, Any]:
+    """Normalise a Lium pod ports_mapping (dict or JSON string) into a dict."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): v for k, v in raw.items()}
+
+
+def _external_port_for(ports: Dict[str, Any], settings) -> Optional[str]:
+    """Pick the externally exposed port for the inference service.
+
+    Preference order:
+    1. The configured LIUM_INFERENCE_PORT (internal port) if present in the map.
+    2. The known pod service ports (8888 / 8000).
+    3. A pod that exposes exactly one port.
+    """
+    if not ports:
+        return None
+
+    candidates: list[str] = []
+    if settings.lium_inference_port:
+        candidates.append(str(settings.lium_inference_port))
+    candidates.extend(_POD_INTERNAL_PORTS)
+
+    for internal in candidates:
+        if internal in ports:
+            return str(ports[internal])
+    if len(ports) == 1:
+        return str(ports[next(iter(ports))])
+    return None
+
+
+def _ssh_host(ssh_connect_cmd: Optional[str]) -> Optional[str]:
+    """Extract the pod's public host from its ssh connect command."""
+    if not ssh_connect_cmd:
+        return None
+    match = re.search(r"root@([^\s]+)", ssh_connect_cmd)
+    if match:
+        return match.group(1)
+    match = re.search(r"@([^\s]+)", ssh_connect_cmd)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _pod_public_endpoint(pod_info: Dict[str, Any], settings) -> Optional[str]:
+    """Derive the public http://host:port endpoint of a pod's inference service.
+
+    Lium exposes only the ports listed in `ports_mapping` (internal -> external);
+    the public host equals the pod's SSH host. Falls back to the structured
+    "ip"/"host" fields + the configured internal port when a mapping is absent.
+    """
+    ports = _parse_ports_mapping(pod_info.get("ports_mapping"))
+
+    host = _ssh_host(pod_info.get("ssh_connect_cmd"))
+    port = _external_port_for(ports, settings)
+
+    if host is None:
+        host = pod_info.get("ip") or pod_info.get("host") or settings.lium_inference_host or None
+    if port is None and settings.lium_inference_port:
+        port = str(settings.lium_inference_port)
+
+    if not host or not port:
+        return None
+    return f"http://{host}:{port}"
+
+
+def _is_pod_running(state: Any) -> bool:
+    return str(state or "").strip().lower() in ("running", "active")
 
 
 def _now() -> datetime:
@@ -119,6 +201,19 @@ class GpuManager:
         """Start or wake the GPU instance and return healthy inference endpoint."""
         settings = get_settings()
 
+        # Compliance guard: block all GPU spend/activation while paused
+        # (e.g. pending confirmation of commercial-use licensing).
+        if settings.gpu_call_paused and not self.mock_mode:
+            self.pod_id = None
+            self.pod_name = None
+            self._inference_endpoint = None
+            self.status = "stopped"
+            raise GpuError(
+                "GPU operations are currently paused by the administrator "
+                "(commercial-use licensing pending for the model weights). "
+                "No GPU will be started and no further spend will occur."
+            )
+
         # If already running and healthy, return immediately
         if self.status == "running" and self._inference_endpoint:
             return self._inference_endpoint
@@ -168,9 +263,25 @@ class GpuManager:
                             await asyncio.sleep(2.0)
 
                 if not is_healthy:
+                    # The configured URL is unreachable. Lium pod hosts/ports move
+                    # on restarts, so re-resolve the endpoint from the Lium API
+                    # before giving up.
+                    discovered = await self._discover_existing_pod(settings)
+                    if discovered:
+                        self._inference_endpoint = discovered
+                        self.pod_name = settings.lium_pod_name_prefix or self.pod_name
+                        is_healthy = True
+                        log.info("gpu_endpoint_rediscovered_via_lium", endpoint=discovered)
+
+                if not is_healthy:
                     self.status = "error"
                     await self._record_error(str(last_exc or "Health check failed"))
-                    raise GpuError(f"Failed to connect to GPU inference service: {str(last_exc)}")
+                    raise GpuError(
+                        "Failed to connect to GPU inference service "
+                        f"({self._inference_endpoint}): {last_exc}. "
+                        "The Lium pod is likely stopped or its public port moved — "
+                        "restart the pod and verify INFERENCE_BASE_URL / pod ports."
+                    )
 
                 self.status = "running"
                 log.info("gpu_pod_active_and_ready", endpoint=self._inference_endpoint)
@@ -218,6 +329,17 @@ class GpuManager:
                         raise
                     log.warning("could_not_check_spend_cap", error=str(exc))
 
+            # An earlier rent of this project's pod may still exist (Lium hosts/
+            # ports move on restarts, but the pod keeps billing). Reuse it before
+            # renting a second billable instance.
+            existing = await self._discover_existing_pod(settings)
+            if existing:
+                self.pod_id = self.pod_id or "rtx5080-lium"
+                self._inference_endpoint = existing
+                self.status = "running"
+                log.info("gpu_pod_reexisting_active", endpoint=existing)
+                return existing
+
             try:
                 headers = {
                     "X-API-Key": settings.lium_api_key,
@@ -242,6 +364,11 @@ class GpuManager:
                         self.status = "error"
                         err_text = resp.text
                         log.error("lium_pod_creation_failed", status=resp.status_code, body=err_text)
+                        if resp.status_code == 402:
+                            raise GpuError(
+                                "Lium account has insufficient balance (HTTP 402 BALANCE_REQUIRED). "
+                                "Top up the Lium account to rent an RTX 5080 pod."
+                            )
                         raise GpuError(f"Failed to launch Lium GPU instance: HTTP {resp.status_code} - {err_text}")
 
                     data = resp.json()
@@ -262,6 +389,53 @@ class GpuManager:
                 await self._record_error(str(exc))
                 raise GpuError(f"GPU startup failed: {str(exc)}")
 
+    async def _discover_existing_pod(self, settings) -> Optional[str]:
+        """Best-effort discovery of an already-rented pod managed by this project.
+
+        Lists the account's pods, matches the pod-name prefix, and derives the
+        inference endpoint from the pod's ports_mapping + SSH host. Returns None
+        (never raises) when the pod cannot be found or the API call fails.
+        """
+        if not settings.has_lium:
+            return None
+        base = settings.lium_api_base.rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(f"{base}/pods", headers={"X-API-Key": settings.lium_api_key})
+                if resp.status_code == 402:
+                    log.warning("lium_discovery_blocked_balance_required")
+                    return None
+                if resp.status_code != 200:
+                    log.warning("lium_discovery_failed", status=resp.status_code)
+                    return None
+                pods = resp.json()
+                if isinstance(pods, dict):
+                    pods = pods.get("pods") or pods.get("data") or []
+                prefix = settings.lium_pod_name_prefix or ""
+                for pod in pods if isinstance(pods, list) else []:
+                    name = str(pod.get("pod_name") or pod.get("name") or "")
+                    if prefix and not name.startswith(prefix):
+                        continue
+                    state = pod.get("status") or pod.get("state")
+                    if not _is_pod_running(state):
+                        continue
+                    endpoint = _pod_public_endpoint(pod, settings)
+                    if not endpoint:
+                        continue
+                    headers = {}
+                    if settings.inference_api_key:
+                        headers["X-Inference-Key"] = settings.inference_api_key
+                    try:
+                        probe = await client.get(f"{endpoint}/health", headers=headers, timeout=5.0)
+                        if probe.status_code == 200:
+                            log.info("lium_existing_pod_discovered", pod_name=name, endpoint=endpoint)
+                            return endpoint
+                    except Exception:
+                        continue
+        except Exception as exc:
+            log.debug("lium_discovery_error", error=str(exc))
+        return None
+
     async def _wait_for_pod_healthy(self, settings) -> str:
         """Poll the pod status and try-on health endpoint until healthy or timeout."""
         timeout = settings.gpu_startup_timeout_seconds
@@ -278,22 +452,22 @@ class GpuManager:
                     )
                     if resp.status_code == 200:
                         pod_info = resp.json()
-                        state = pod_info.get("status") or pod_info.get("state")
-                        if state in ("running", "active"):
-                            host = settings.lium_inference_host or pod_info.get("ip") or pod_info.get("host")
-                            port = settings.lium_inference_port
-                            ports_mapping = pod_info.get("ports_mapping") or {}
-                            if str(port) in ports_mapping:
-                                port = ports_mapping[str(port)]
-
-                            if host:
-                                endpoint = f"http://{host}:{port}"
+                        if _is_pod_running(pod_info.get("status") or pod_info.get("state")):
+                            endpoint = _pod_public_endpoint(pod_info, settings)
+                            if endpoint:
                                 try:
                                     h_resp = await client.get(f"{endpoint}/health", timeout=3.0)
                                     if h_resp.status_code == 200:
                                         return endpoint
                                 except Exception:
                                     pass
+                    elif resp.status_code == 402:
+                        raise GpuError(
+                            "Lium account has insufficient balance (HTTP 402). "
+                            "Top up the Lium account or set INFERENCE_BASE_URL to a running pod."
+                        )
+            except GpuError:
+                raise
             except Exception as e:
                 log.debug("polling_pod_status_retry", error=str(e))
 

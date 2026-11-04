@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     gpu_idle_shutdown_seconds: int = 600
     gpu_startup_timeout_seconds: int = 600
     gpu_daily_spend_cap_usd: float = 0.0
+    gpu_call_paused: bool = False
 
     # ----------------------------------------------------------- inference ---
     inference_base_url: str = ""
@@ -118,6 +119,11 @@ class Settings(BaseSettings):
     def using_fixed_inference(self) -> bool:
         """True when a pre-provisioned inference endpoint is configured."""
         return bool(self.inference_base_url.strip())
+
+    @property
+    def no_spend_guard(self) -> bool:
+        """True while GPU spend is paused (e.g. pending commercial-use licensing)."""
+        return self.gpu_call_paused
 
 
 @lru_cache(maxsize=1)

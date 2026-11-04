@@ -103,12 +103,23 @@ async def test_unsupported_category_rejection():
     garment_bytes = _create_test_image((200, 200))
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Sunglasses are NOT supported by FASHN VTON 1.5
+        # 'sunglasses' is normalised to the supported 'glasses' category
+        # (commit 8d4e1a3: multi-category support), so it must succeed as any
+        # other supported category would.
+        resp_ok = await client.post(
+            "/try-on-vton",
+            files={"person_image": ("person.jpg", person_bytes, "image/jpeg"), "garment_image": ("garment.jpg", garment_bytes, "image/jpeg")},
+            data={"email": "shopper-eyewear@store.com", "category": "sunglasses"},
+        )
+        assert resp_ok.status_code == 200
+        assert resp_ok.json()["success"] is True
+
+        # Wholly unknown categories are still rejected.
         resp = await client.post(
             "/try-on-vton",
             files={"person_image": ("person.jpg", person_bytes, "image/jpeg"), "garment_image": ("garment.jpg", garment_bytes, "image/jpeg")},
-            data={"email": "shopper@store.com", "category": "sunglasses"},
+            data={"email": "shopper2@store.com", "category": "jewelry"},
         )
         assert resp.status_code == 422
         data = resp.json()
-        assert "unsupported by FASHN VTON 1.5" in data["message"]
+        assert data["error"] == "validation_error"
