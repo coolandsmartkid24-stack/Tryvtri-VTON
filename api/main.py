@@ -1,32 +1,34 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from mangum import Mangum
+"""
+TryVtri Virtual Try-On — FastAPI serverless proxy for fal.ai on Vercel.
+
+Endpoints:
+  POST /api/try-on   — person image (data URI) + garment URL (Shopify CDN) → result image URL
+  GET  /health       — health check
+
+Authentication: FAL_KEY environment variable (set on Vercel, never exposed to browser).
+CORS: open to all origins so Shopify storefronts can call it directly.
+"""
+
+import os
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
-import os
 
 import fal_client
 
 app = FastAPI(title="TryVtri Virtual Try-On API")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 FAL_MODEL = "fal-ai/flux-2-lora-gallery/virtual-tryon"
 
-# FAL_KEY is set as a Vercel Environment Variable; fal-client reads it from env
+# fal-client reads FAL_KEY from the environment (set on Vercel project settings)
 if "FAL_KEY" not in os.environ:
     raise RuntimeError("FAL_KEY environment variable is not set on the server")
 
 
 class TryOnRequest(BaseModel):
-    image_base64: str
-    garment_url: str
+    image_base64: str          # data URI of customer photo (e.g. "data:image/png;base64,...")
+    garment_url: str           # Shopify CDN URL of the garment image
     prompt: Optional[str] = None
     guidance_scale: Optional[float] = 2.5
     num_inference_steps: Optional[int] = 40
@@ -55,13 +57,34 @@ class TryOnResponse(BaseModel):
     prompt: Optional[str] = None
 
 
+def cors_json_response(content: Any, status_code: int = 200) -> JSONResponse:
+    """Return a JSON response with CORS headers always present (even on errors)."""
+    return JSONResponse(
+        content=content,
+        status_code=status_code,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Max-Age": "86400",
+        },
+    )
+
+
+@app.options("/api/try-on")
+@app.options("/try-on")
+@app.options("/health")
+async def cors_preflight(request: Request):
+    return cors_json_response({"ok": True}, status_code=200)
+
+
 @app.get("/health")
-def health():
-    return {"status": "healthy", "service": "tryvtri-vton-api"}
+async def health(request: Request):
+    return cors_json_response({"status": "healthy", "service": "tryvtri-vton-api"})
 
 
-@app.post("/api/try-on", response_model=TryOnResponse)
-async def try_on(req: TryOnRequest):
+@app.post("/api/try-on")
+async def try_on(request: Request, req: TryOnRequest):
     try:
         final_prompt = req.prompt or "A person wearing the garment, virtual try-on, photorealistic, high detail"
 
@@ -100,20 +123,19 @@ async def try_on(req: TryOnRequest):
                 height=img.get("height"),
             ))
 
-        return TryOnResponse(
-            images=images,
-            seed=result.get("seed"),
-            prompt=result.get("prompt"),
+        return cors_json_response(
+            TryOnResponse(
+                images=images,
+                seed=result.get("seed"),
+                prompt=result.get("prompt"),
+            ).model_dump(),
+            status_code=200,
         )
 
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        return cors_json_response({"error": str(exc)}, status_code=500)
 
 
-@app.post("/try-on", response_model=TryOnResponse)
-async def try_on_alias(req: TryOnRequest):
-    return await try_on(req)
-
-
-# Mangum ASGI handler for Vercel Python serverless functions
-handler = Mangum(app)
+@app.post("/try-on")
+async def try_on_alias(request: Request, req: TryOnRequest):
+    return await try_on(request, req)
