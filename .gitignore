@@ -6,9 +6,15 @@ __pycache__/
 .env
 .venv/
 venv/
-.env
 pip-log.txt
 pip-delete-this-directory.txt
+
+# Node / Vercel
+node_modules/
+.env
+.env.local
+.env.production
+package-lock.json
 
 # IDE / OS
 .vscode/
