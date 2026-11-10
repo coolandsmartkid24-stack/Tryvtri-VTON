@@ -165,6 +165,10 @@
     reader.readAsDataURL(f);
   });
 
+  // Portrait of robustness: accept a bare domain OR a value that already includes /api/try-on
+  var API_BASE = (root.dataset.api || 'https://tryvtri-vton.vercel.app').trim().replace(/\/+$/, '');
+  API_BASE = API_BASE.replace(/\/(api\/try-on|try-on)$/, '');
+
   run.addEventListener('click', async function () {
     if (!photoDataUrl) return;
     run.disabled = true; resultReady = false; refreshCartBtn(); resultImg.hidden = true;
@@ -201,7 +205,7 @@
         sync_mode: false
       };
 
-      var res = await fetch(root.dataset.api + '/api/try-on', {
+      var res = await fetch(API_BASE + '/api/try-on', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
