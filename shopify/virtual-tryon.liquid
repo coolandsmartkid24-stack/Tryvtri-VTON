@@ -223,7 +223,7 @@
     } catch (err) {
       console.error('[TryVtri]', err);
       var m = err && err.message || '';
-      if (m === 'Failed to fetch') m = 'Could not reach the try-on service (CORS/network). Check browser console.';
+      if (m === 'Failed to fetch') m = 'Could not reach the try-on service. Check your connection and try again.';
       say(m || 'Something went wrong. Please try again.', true);
     } finally {
       run.disabled = false;

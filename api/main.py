@@ -6,15 +6,10 @@ Endpoints:
   GET  /health       — health check
 
 Authentication: FAL_KEY environment variable (set on Vercel project settings).
-CORS: CORSMiddleware covers ALL responses including 422/500 errors.
 """
 
 import os
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 
@@ -27,64 +22,6 @@ FAL_MODEL = "fal-ai/flux-2-lora-gallery/virtual-tryon"
 # fal-client reads FAL_KEY from environment (set on Vercel project settings)
 if "FAL_KEY" not in os.environ:
     raise RuntimeError("FAL_KEY environment variable is not set on the server")
-
-# ── CORS middleware — applies to EVERY response including 422/500 errors ─────
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
-    max_age=86400,
-)
-
-
-# ── Exception handlers — guarantee CORS headers on error responses ───────────
-
-@app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    return JSONResponse(
-        {"error": exc.detail},
-        status_code=exc.status_code,
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
-            "Access-Control-Max-Age": "86400",
-        },
-    )
-
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    return JSONResponse(
-        {"error": "Invalid request", "details": exc.errors()},
-        status_code=422,
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
-            "Access-Control-Max-Age": "86400",
-        },
-    )
-
-
-# ── OPTIONS preflight ────────────────────────────────────────────────────────
-
-@app.options("/api/try-on")
-@app.options("/try-on")
-@app.options("/health")
-def cors_preflight():
-    return JSONResponse(
-        {"ok": True},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
-            "Access-Control-Max-Age": "86400",
-        },
-    )
-
 
 # ── Request / response models ────────────────────────────────────────────────
 
