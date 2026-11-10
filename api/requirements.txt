@@ -2,3 +2,5 @@ fastapi>=0.104.0
 uvicorn>=0.24.0
 fal-client>=1.0.0
 mangum>=0.17.0
+python-multipart>=0.0.9
+

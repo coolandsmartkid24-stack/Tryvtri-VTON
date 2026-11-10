@@ -12,6 +12,7 @@ browser blocks every request ("Failed to fetch").
 """
 
 import os
+import base64
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -73,14 +74,10 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 # ── OPTIONS preflight (browser handshake) ─────────────────────────────────────
 
+@app.options("/api/try-on/{rest:path}")
+@app.options("/try-on/{rest:path}")
 @app.options("/api/try-on")
 @app.options("/try-on")
-@app.options("/api/try-on/api/try-on")
-@app.options("/try-on/api/try-on")
-@app.options("/api/try-on/")
-@app.options("/try-on/")
-@app.options("/api/try-on/api/try-on/")
-@app.options("/try-on/api/try-on/")
 def cors_preflight():
     return JSONResponse(
         {"ok": True},
@@ -135,14 +132,43 @@ def health():
 
 @app.post("/api/try-on")
 @app.post("/try-on")
-@app.post("/api/try-on/api/try-on")
-@app.post("/try-on/api/try-on")
-@app.post("/api/try-on/")
-@app.post("/try-on/")
-@app.post("/api/try-on/api/try-on/")
-@app.post("/try-on/api/try-on/")
-def try_on(req: TryOnRequest):
+@app.api_route("/api/try-on/{rest:path}", methods=["POST", "OPTIONS"])
+@app.api_route("/try-on/{rest:path}", methods=["POST", "OPTIONS"])
+async def try_on(request: Request):
     try:
+        try:
+            ct = (request.headers.get("content-type") or "").lower()
+        except Exception:
+            ct = ""
+
+        if ct.startswith("application/json"):
+            body = await request.json()
+            req = TryOnRequest(**body)
+        else:
+            form = await request.form()
+            person = form.get("person_image") or form.get("image_base64") or form.get("image")
+            if person is None:
+                raw = await request.body()
+                try:
+                    req = TryOnRequest.parse_raw(raw)
+                except Exception:
+                    raise HTTPException(status_code=400, detail=(
+                        "No person image found. Send JSON POST {\"image_base64\": \"data:image/...;base64,...\", "
+                        "\"garment_url\": \"https://...\"} to /api/try-on"
+                    ))
+            else:
+                if hasattr(person, "read"):
+                    data = await person.read()
+                    person_ct = getattr(person, "content_type", None) or "image/jpeg"
+                    image_base64 = "data:" + person_ct + ";base64," + base64.b64encode(data).decode()
+                else:
+                    image_base64 = str(person)
+                garment = form.get("garment_url") or form.get("garment") or ""
+                prompt = form.get("prompt") or None
+                category = form.get("category") or None
+                seed = None
+                req = TryOnRequest(image_base64=image_base64, garment_url=str(garment), prompt=prompt or (f"A person wearing the garment ({category or 'clothing'}), virtual try-on, photorealistic" if category else None), seed=seed)
+
         garment_url = req.garment_url.strip()
         if garment_url.startswith("//"):
             garment_url = "https:" + garment_url
