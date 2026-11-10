@@ -179,6 +179,7 @@
     }
 
     var garmentUrl = toAbsoluteUrl(root.dataset.garmentUrl);
+    console.log('[TryVtri] garment URL:', garmentUrl);
     if (!garmentUrl) {
       say('No garment image available for this product.', true);
       run.disabled = false;
@@ -211,7 +212,11 @@
       try { data = JSON.parse(raw); } catch (e) { console.warn('[TryVtri] non-JSON response:', raw.slice(0, 300)); }
       console.log('[TryVtri] response', res.status, data);
 
-      if (!res.ok) throw new Error(data.error || data.message || ('Request failed (' + res.status + ')'));
+      if (!res.ok) {
+        var detail = data.error || data.message;
+        if (!detail && data.detail) detail = (typeof data.detail === 'string') ? data.detail : JSON.stringify(data.detail);
+        throw new Error(detail || ('Request failed (' + res.status + ')'));
+      }
 
       var images = data.images || [];
       var out = null;

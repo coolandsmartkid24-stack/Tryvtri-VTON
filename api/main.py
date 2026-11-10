@@ -186,9 +186,10 @@ def try_on(req: TryOnRequest):
         raise
     except Exception as exc:
         s = str(exc)
-        status = 404 if ("404" in s or "Not Found" in s or "not found" in s) else 500
+        status = 404 if ("404" in s or "NOT_FOUND" in s or "Not Found" in s or "not found" in s) else 500
         if status == 404:
-            s = "Garment or person image could not be fetched (404). The garment image must be a publicly reachable URL: " + s
+            s = ("NOT_FOUND: fal.ai could not fetch one of the images. "
+                 "Check that both the person photo and this garment image open in a browser: " + garment_url + " | detail: " + s)
         raise HTTPException(status_code=status, detail=s)
 
 
