@@ -2,27 +2,15 @@
   TryVtri Virtual Try-On — Shopify Custom Liquid block (fal.ai powered)
   Paste into: Shopify Theme Editor > Product page > Add block > Custom Liquid
 
-  Why fal.ai instead of the local GPU backend:
-  - The local tryvtri-vton.vercel.app backend runs IDM-VTON on a GPU that is
-    administratively paused ("commercial-use licensing pending").
-  - This block calls /api/try-on, a Vercel serverless proxy that runs
-    fal-ai/flux-2-lora-gallery/virtual-tryon on fal's cloud GPUs.
-    No local GPU needed. FAL_KEY stays server-side (never in the browser).
-
-  Features:
-  1. Category detected per product (override with tag: vto:dresses).
-     Allowed: tops, bottoms, dresses, outerwear, accessories
-  2. Price + currency passed to the widget.
-  3. Selected variant / garment image stay in sync with option changes.
-  4. Customer photo is never stored or written into page HTML (privacy).
-  5. Customer email is not collected by the widget.
+  Endpoint: Vercel FastAPI proxy at https://tryvtri-vton.vercel.app/api/try-on
+  - Runs fal-ai/flux-2-lora-gallery/virtual-tryon on fal's cloud GPUs
+  - FAL_KEY stays server-side (never in browser)
+  - CORS enabled for storefront fetch calls
 {%- endcomment -%}
 
-{%- assign vto_api_root = '' -%} {%- comment %} same-origin proxy: /api/try-on {% endcomment -%}
-
 {%- assign vto_variant = product.selected_or_first_available_variant -%}
+{%- assign vto_api = 'https://tryvtri-vton.vercel.app' -%}
 
-{%- comment %} ---- Category detection ---- {% endcomment -%}
 {%- assign vto_category = '' -%}
 {%- for tag in product.tags -%}
   {%- assign tag_l = tag | downcase -%}
@@ -47,7 +35,6 @@
   {%- endif -%}
 {%- endif -%}
 
-{%- comment %} ---- Initial garment image (selected variant / product) ---- {% endcomment -%}
 {%- assign vto_garment_url = '' -%}
 {%- if vto_variant.featured_image -%}
   {%- assign vto_garment_url = vto_variant.featured_image | image_url: width: 1024 -%}
@@ -55,292 +42,180 @@
   {%- assign vto_garment_url = product.featured_image | image_url: width: 1024 -%}
 {%- endif -%}
 
-{%- comment %} ---- Variant context JSON (synced by JS) ---- {% endcomment -%}
-<script type="application/json" data-tv-product-context>
-  {
-    "productId": {{ product.id | json }},
-    "productTitle": {{ product.title | json }},
-    "productUrl": {{ shop.url | append: product.url | json }},
-    "featuredImageUrl": {%- if product.featured_image -%}{{ product.featured_image | image_url: width: 1024 | json }}{%- else -%}null{%- endif -%},
-    "selectedVariantId": {{ vto_variant.id | json }},
-    "selectedVariantTitle": {{ vto_variant.title | json }},
-    "category": {{ vto_category | json }},
-    "currency": {{ cart.currency.iso_code | default: shop.currency | json }},
-    "price": {{ vto_variant.price | money_without_currency | strip_html | json }},
-    "priceFormatted": {{ vto_variant.price | money | strip_html | json }},
-    "garmentUrl": {%- if vto_garment_url -%}{{ vto_garment_url | json }}{%- else -%}null{%- endif -%},
-    "variants": [
-      {%- for variant in product.variants -%}
-        {
-          "id": {{ variant.id | json }},
-          "title": {{ variant.title | json }},
-          "price": {{ variant.price | json }},
-          "priceFormatted": {{ variant.price | money | strip_html | json }},
-          "available": {{ variant.available | json }},
-          "imageUrl": {%- if variant.featured_image -%}{{ variant.featured_image | image_url: width: 1024 | json }}{%- elsif product.featured_image -%}{{ product.featured_image | image_url: width: 1024 | json }}{%- else -%}null{%- endif -%}
-        }{%- unless forloop.last -%},{%- endunless -%}
-      {%- endfor -%}
-    ]
-  }
-</script>
+<style>
+  .tv-wrap{margin:16px 0;font-family:inherit;box-sizing:border-box;max-width:100%}
+  .tv-wrap *{box-sizing:border-box}
+  .tv-btn{display:flex;align-items:center;gap:14px;width:100%;padding:14px 18px;border:1px solid #16130f;border-radius:8px;background:#fff6e5;box-shadow:3px 3px 0 #16130f;cursor:pointer;text-align:left;font-family:inherit}
+  .tv-btn b{display:block;font-size:18px;color:#16130f}
+  .tv-btn small{font-size:13px;color:#6f6a61}
+  .tv-ico{width:44px;height:44px;border-radius:8px;background:#2563eb;color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:none}
+  .tv-credit{font-size:11px;color:#888;margin-top:6px}
+  .tv-credit a{color:inherit}
+  .tv-modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:2147483000;padding:16px;font-family:inherit}
+  .tv-modal *{box-sizing:border-box}
+  .tv-modal.open{display:flex}
+  .tv-dialog{background:#fff;color:#16130f;border-radius:12px;max-width:560px;width:100%;max-height:92vh;overflow:auto;padding:20px;position:relative}
+  .tv-close{position:absolute;top:10px;right:14px;border:0;background:none;font-size:26px;cursor:pointer;line-height:1;color:#16130f}
+  .tv-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
+  .tv-grid img{width:100%;border-radius:8px;border:1px solid #ddd;aspect-ratio:3/4;object-fit:cover;background:#f4f4f4}
+  .tv-grid img[hidden]{display:none}
+  .tv-cta{display:block;width:100%;padding:12px;border:0;border-radius:8px;background:#16130f;color:#fff;font-size:16px;cursor:pointer;margin-top:8px}
+  .tv-cta[hidden]{display:none}
+  .tv-cta[disabled]{opacity:.5;cursor:not-allowed}
+  .tv-cta.alt{background:#2563eb}
+  .tv-msg{font-size:14px;margin-top:10px;min-height:20px}
+  .tv-msg.err{color:#b00020}
+</style>
 
-<link rel="stylesheet" href="{{ 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css' }}">
+<div class="tv-wrap" id="tv-{{ product.id }}"
+     data-api="{{ vto_api }}"
+     data-shop="{{ shop.permanent_domain }}"
+     data-product-id="{{ product.id }}"
+     data-product-title="{{ product.title | escape }}"
+     data-category="{{ vto_category }}"
+     data-variant-id="{{ vto_variant.id }}"
+     data-available="{{ vto_variant.available }}"
+     data-garment-url="{{ vto_garment_url }}"
+     data-price-cents="{{ vto_variant.price }}"
+     data-price-formatted="{{ vto_variant.price | money | strip_html | escape }}"
+     data-currency="{{ cart.currency.iso_code | default: shop.currency }}">
 
-<div class="tv-card" data-tryvtri id="tv-card-{{ product.id }}"
-     style="--tv-bg:#ffffff;--tv-title-c:#0f172a;--tv-desc-c:#475569;--tv-primary:#16130f;--tv-accent:#2563eb;--tv-border:#cbd5e1;margin:20px 0;border-radius:12px;border:1px solid var(--tv-border);box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);overflow:hidden;max-width:640px;"
-     data-tv-platform="shopify"
-     data-tv-product-id="{{ product.id }}"
-     data-tv-product-title="{{ product.title | escape }}"
-     data-tv-product-url="{{ shop.url }}{{ product.url }}"
-     data-tv-garment-url="{{ vto_garment_url | escape }}"
-     data-tv-variant-id="{{ vto_variant.id }}"
-     data-tv-category="{{ vto_category }}"
-     data-tv-price="{{ vto_variant.price | money_without_currency | strip_html | escape }}"
-     data-tv-price-cents="{{ vto_variant.price }}"
-     data-tv-price-formatted="{{ vto_variant.price | money | strip_html | escape }}"
-     data-tv-currency="{{ cart.currency.iso_code | default: shop.currency }}"
-     data-tv-endpoint="/api/try-on">
+  <button type="button" class="tv-btn" data-open aria-haspopup="dialog">
+    <span class="tv-ico">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/><circle cx="12" cy="10.2" r="2.6"/><path d="M7.6 18c.6-2.6 2.4-4 4.4-4s3.8 1.4 4.4 4"/></svg>
+    </span>
+    <span><b>Try It On Me</b><small>See this {% if vto_category == 'accessories' %}item{% else %}garment{% endif %} on your photo in seconds</small></span>
+  </button>
+  <div class="tv-credit">Powered by <a href="https://fit.tryvtri.com/" target="_blank" rel="noopener">TryVtri</a></div>
 
-  <div class="tv-header" style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:var(--tv-bg);border-bottom:1px solid var(--tv-border);">
-    <div style="display:flex;align-items:center;gap:12px;">
-      <div class="tv-ico" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;background:var(--tv-accent);color:#fff;box-shadow:0 2px 4px rgba(37,99,235,0.3);">
-        <i class="fa-solid fa-shirt" style="font-size:18px;"></i>
+  <div class="tv-modal" data-modal role="dialog" aria-modal="true" aria-label="Virtual try-on">
+    <div class="tv-dialog">
+      <button type="button" class="tv-close" data-close aria-label="Close">&times;</button>
+      <h3 style="margin:0 0 4px">{{ product.title }}</h3>
+      <p style="margin:0;font-size:14px;color:#555">Upload a clear, front-facing, full-body photo.</p>
+      <input type="file" accept="image/jpeg,image/png,image/webp" data-file style="margin-top:12px">
+      <div class="tv-grid">
+        <img data-person alt="Your photo" hidden>
+        <img data-result alt="Try-on result" hidden>
       </div>
-      <div>
-        <div class="tv-t1" style="font-size:16px;font-weight:700;color:var(--tv-title-c);letter-spacing:-0.02em;">Try It On Me</div>
-        <div class="tv-t2" style="font-size:13px;color:var(--tv-desc-c);">See this {{ vto_category }} on your photo in seconds</div>
-      </div>
-    </div>
-    <span class="tv-badge" style="font-size:11px;font-weight:600;color:var(--tv-accent);background:#eff6ff;border-radius:6px;padding:2px 8px;text-transform:uppercase;letter-spacing:0.04em;">fal.ai powered</span>
-  </div>
-
-  <div class="tv-body" style="padding:20px;display:flex;flex-direction:column;gap:14px;background:var(--tv-bg);">
-    {%- comment %} Photo upload {% endcomment -%}
-    <div class="tv-upload-section" style="display:flex;flex-direction:column;gap:10px;">
-      <label class="tv-label" style="font-size:13px;font-weight:600;color:var(--tv-title-c);">Your photo</label>
-      <div class="tv-dropzone" id="tv-dropzone-{{ product.id }}"
-           style="border:2px dashed #cbd5e1;border-radius:10px;background:#f8fafc;min-height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;color:#64748b;font-size:14px;transition:all 0.2s;">
-        <i class="fa-solid fa-cloud-arrow-up" style="font-size:32px;margin-bottom:8px;color:#94a3b8;"></i>
-        <div style="font-weight:500;color:#334155;">Click to upload your photo</div>
-        <div style="font-size:12px;color:#94a3b8;">JPG or PNG, max 8MB</div>
-        <input type="file" id="tv-file-input-{{ product.id }}" accept="image/jpeg,image/png" style="display:none;">
-      </div>
-      <div id="tv-preview-{{ product.id }}" style="display:none;margin-top:8px;">
-        <img id="tv-preview-img-{{ product.id }}" style="width:100%;max-height:240px;border-radius:8px;border:1px solid var(--tv-border);object-fit:cover;">
-        <button type="button" id="tv-remove-photo-{{ product.id }}" style="margin-top:6px;padding:4px 10px;background:#fee2e2;color:#dc2626;border:none;border-radius:6px;font-size:12px;cursor:pointer;">Remove</button>
-      </div>
-    </div>
-
-    {%- comment %} Controls {% endcomment -%}
-    <div class="tv-controls" style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
-      <div class="tv-info" style="font-size:12px;color:#64748b;background:#f1f5f9;padding:8px 12px;border-radius:8px;border:1px solid #e2e8f0;">
-        <span style="font-weight:600;color:#0f172a;">Garment:</span> <span id="tv-garment-name-{{ product.id }}">{{ vto_variant.title | escape }}</span><br>
-        <span style="font-weight:600;color:#0f172a;">Price:</span> <span id="tv-garment-price-{{ product.id }}">{{ vto_variant.price | money }}</span>
-      </div>
-      <button class="tv-try-button" id="tv-try-button-{{ product.id }}"
-              style="background:var(--tv-primary);color:#fff;border:none;border-radius:8px;padding:12px 22px;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 4px 6px -1px rgba(22,19,15,0.2);min-width:140px;disabled:opacity:0.5;disabled:cursor:not-allowed;">
-        <span id="tv-button-text-{{ product.id }}">Generate Try-On</span>
-      </button>
-    </div>
-
-    {%- comment %} Status / result {% endcomment -%}
-    <div id="tv-status-{{ product.id }}" style="font-size:13px;color:#64748b;min-height:20px;"></div>
-    <div id="tv-result-container-{{ product.id }}" style="display:none;text-align:center;margin-top:12px;">
-      <img id="tv-result-img-{{ product.id }}" style="max-width:100%;border-radius:10px;border:1px solid var(--tv-border);box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);">
-      <div style="margin-top:8px;">
-        <a id="tv-download-link-{{ product.id }}" href="#" download="tryvtri-result.png" style="color:var(--tv-accent);text-decoration:none;font-size:13px;font-weight:500;">Download result &rarr;</a>
-      </div>
+      <button type="button" class="tv-cta" data-run disabled>Generate try-on</button>
+      <button type="button" class="tv-cta alt" data-cart hidden>Add to cart &ndash; <span data-price></span></button>
+      <div class="tv-msg" data-msg aria-live="polite"></div>
     </div>
   </div>
 </div>
 
 <script>
 (function () {
-  var productId = {{ product.id | json }};
-  var card = document.getElementById('tv-card-' + productId);
-  if (!card) return;
+  var root = document.getElementById('tv-{{ product.id }}');
+  if (!root) { console.error('[TryVtri] root not found'); return; }
+  var $ = function (s) { return root.querySelector(s); };
 
-  var ctxEl = card.querySelector('[data-tv-product-context]');
-  var ctx;
-  try { ctx = JSON.parse(ctxEl.textContent); } catch (e) { return; }
+  var modal = $('[data-modal]'), file = $('[data-file]'), run = $('[data-run]'),
+      cartBtn = $('[data-cart]'), msg = $('[data-msg]'),
+      personImg = $('[data-person]'), resultImg = $('[data-result]'),
+      priceEl = $('[data-price]');
 
-  // DOM refs
-  var fileInput = document.getElementById('tv-file-input-' + productId);
-  var dropzone = document.getElementById('tv-dropzone-' + productId);
-  var previewWrap = document.getElementById('tv-preview-' + productId);
-  var previewImg = document.getElementById('tv-preview-img-' + productId);
-  var removeBtn = document.getElementById('tv-remove-photo-' + productId);
-  var tryBtn = document.getElementById('tv-try-button-' + productId);
-  var btnText = document.getElementById('tv-button-text-' + productId);
-  var statusEl = document.getElementById('tv-status-' + productId);
-  var resultContainer = document.getElementById('tv-result-container-' + productId);
-  var resultImg = document.getElementById('tv-result-img-' + productId);
-  var downloadLink = document.getElementById('tv-download-link-' + productId);
+  var photoDataUrl = null, resultReady = false;
 
-  var personBase64 = null;
-  var loading = false;
+  function say(t, err) { msg.textContent = t || ''; msg.className = 'tv-msg' + (err ? ' err' : ''); }
+  function isAvailable() { return root.dataset.available === 'true'; }
+  function refreshCartBtn() { cartBtn.hidden = !(resultReady && isAvailable()); }
 
-  // ---- File upload handling ----
-  dropzone.addEventListener('click', function () { fileInput.click(); });
-  dropzone.addEventListener('dragover', function (e) { e.preventDefault(); dropzone.style.borderColor = 'var(--tv-accent)'; dropzone.style.background = '#eff6ff'; });
-  dropzone.addEventListener('dragleave', function (e) { e.preventDefault(); dropzone.style.borderColor = '#cbd5e1'; dropzone.style.background = '#f8fafc'; });
-  dropzone.addEventListener('drop', function (e) {
-    e.preventDefault();
-    dropzone.style.borderColor = '#cbd5e1';
-    dropzone.style.background = '#f8fafc';
-    handleFiles(e.dataTransfer.files);
+  $('[data-open]').addEventListener('click', function () {
+    if (modal.parentNode !== document.body) document.body.appendChild(modal);
+    priceEl.textContent = root.dataset.priceFormatted;
+    modal.classList.add('open');
   });
-  fileInput.addEventListener('change', function () { handleFiles(fileInput.files); });
+  function close() { modal.classList.remove('open'); }
+  $('[data-close]').addEventListener('click', close);
+  modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
 
-  function handleFiles(files) {
-    if (!files || files.length === 0) return;
-    var file = files[0];
-    if (!file.type.match(/^image\/(jpeg|jpg|png)$/)) {
-      setStatus('Please upload a JPG or PNG image.', true);
-      return;
-    }
-    if (file.size > 8 * 1024 * 1024) {
-      setStatus('Image must be under 8MB.', true);
-      return;
-    }
+  file.addEventListener('change', function () {
+    var f = file.files[0] || null;
+    if (!f) { photoDataUrl = null; run.disabled = true; return; }
+    if (f.size > 10 * 1024 * 1024) { say('Photo is too large (max 10 MB).', true); photoDataUrl = null; run.disabled = true; return; }
     var reader = new FileReader();
     reader.onload = function (e) {
-      personBase64 = e.target.result;
-      previewImg.src = personBase64;
-      previewWrap.style.display = 'block';
-      dropzone.style.display = 'none';
-      setStatus('Photo ready. Tap Generate Try-On.');
-      tryBtn.disabled = false;
+      photoDataUrl = e.target.result;
+      personImg.src = photoDataUrl; personImg.hidden = false;
+      run.disabled = false; say('');
     };
-    reader.readAsDataURL(file);
-  }
-
-  removeBtn.addEventListener('click', function () {
-    personBase64 = null;
-    previewWrap.style.display = 'none';
-    dropzone.style.display = 'flex';
-    fileInput.value = '';
-    resultContainer.style.display = 'none';
-    setStatus('Photo removed.');
+    reader.readAsDataURL(f);
   });
 
-  // ---- Variant / price / garment sync ----
-  function applyVariant(id) {
-    id = String(id);
-    for (var i = 0; i < ctx.variants.length; i++) {
-      var v = ctx.variants[i];
-      if (String(v.id) === id) {
-        card.setAttribute('data-tv-variant-id', v.id);
-        card.setAttribute('data-tv-price-cents', v.price);
-        card.setAttribute('data-tv-price-formatted', v.priceFormatted);
-        document.getElementById('tv-garment-name-' + productId).textContent = v.title;
-        document.getElementById('tv-garment-price-' + productId).textContent = v.priceFormatted;
-        if (v.imageUrl) {
-          card.setAttribute('data-tv-garment-url', v.imageUrl);
-        }
-        card.dispatchEvent(new CustomEvent('tryvtri:variant-change', { bubbles: true, detail: v }));
-        return;
-      }
-    }
-  }
+  run.addEventListener('click', async function () {
+    if (!photoDataUrl) return;
+    run.disabled = true; resultReady = false; refreshCartBtn(); resultImg.hidden = true;
+    say('Generating your try-on… this can take 20–60 seconds.');
 
-  function currentVariantId() {
-    var m = window.location.search.match(/[?&]variant=(\d+)/);
-    if (m) return m[1];
-    var input = document.querySelector('form[action*="/cart/add"] [name="id"]');
-    return input ? input.value : null;
-  }
-
-  function initVariant() {
-    var id = currentVariantId() || ctx.selectedVariantId;
-    applyVariant(id);
-  }
-
-  document.addEventListener('change', function () { var id = currentVariantId(); if (id) applyVariant(id); });
-  document.addEventListener('variant:change', function (e) {
-    var id = (e.detail && e.detail.variant && e.detail.variant.id) || currentVariantId();
-    if (id) applyVariant(id);
-  });
-  window.addEventListener('popstate', function () { var id = currentVariantId(); if (id) applyVariant(id); });
-  var _rs = history.replaceState;
-  history.replaceState = function () {
-    var r = _rs.apply(this, arguments);
-    var id = currentVariantId(); if (id) applyVariant(id);
-    return r;
-  };
-
-  initVariant();
-
-  // ---- Try-on request ----
-  function setStatus(msg, isError) {
-    statusEl.textContent = msg;
-    statusEl.style.color = isError ? '#dc2626' : '#64748b';
-  }
-
-  tryBtn.addEventListener('click', function () {
-    if (loading) return;
-    if (!personBase64) {
-      setStatus('Please upload your photo first.', true);
-      return;
-    }
-    var garmentUrl = card.getAttribute('data-tv-garment-url') || ctx.garmentUrl;
+    var garmentUrl = root.dataset.garmentUrl;
     if (!garmentUrl) {
-      setStatus('No garment image available for this product.', true);
+      say('No garment image available for this product.', true);
+      run.disabled = false;
       return;
     }
 
-    loading = true;
-    tryBtn.disabled = true;
-    btnText.textContent = 'Generating...';
-    resultContainer.style.display = 'none';
-    setStatus('Contacting fal.ai... this usually takes 20-60 seconds.');
+    try {
+      var payload = {
+        image_base64: photoDataUrl,
+        garment_url: garmentUrl,
+        prompt: "A person wearing the garment, virtual try-on, photorealistic, high detail",
+        guidance_scale: 2.5,
+        num_inference_steps: 40,
+        acceleration: "regular",
+        enable_safety_checker: true,
+        output_format: "png",
+        num_images: 1,
+        lora_scale: 1,
+        sync_mode: false
+      };
 
-    var payload = {
-      image_base64: personBase64,
-      garment_url: garmentUrl,
-      prompt: "A person wearing the garment, virtual try-on, photorealistic, high detail",
-      guidance_scale: 2.5,
-      num_inference_steps: 40,
-      acceleration: "regular",
-      enable_safety_checker: true,
-      output_format: "png",
-      num_images: 1,
-      lora_scale: 1,
-      sync_mode: false
-    };
+      var res = await fetch(root.dataset.api + '/api/try-on', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-    var endpoint = card.getAttribute('data-tv-endpoint') || '/api/try-on';
+      var raw = await res.text();
+      var data = {};
+      try { data = JSON.parse(raw); } catch (e) { console.warn('[TryVtri] non-JSON response:', raw.slice(0, 300)); }
+      console.log('[TryVtri] response', res.status, data);
 
-    fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-    .then(function (resp) {
-      if (!resp.ok) return resp.text().then(function (t) { throw new Error(t || resp.status); });
-      return resp.json();
-    })
-    .then(function (data) {
-      loading = false;
-      tryBtn.disabled = false;
-      btnText.textContent = 'Generate Try-On';
-      if (data.images && data.images.length > 0 && data.images[0].url) {
-        resultImg.src = data.images[0].url;
-        downloadLink.href = data.images[0].url;
-        resultContainer.style.display = 'block';
-        setStatus('Try-on complete!');
-        card.dispatchEvent(new CustomEvent('tryvtri:result', { bubbles: true, detail: data }));
-      } else {
-        setStatus('No image returned from fal.ai.', true);
-      }
-    })
-    .catch(function (err) {
-      loading = false;
-      tryBtn.disabled = false;
-      btnText.textContent = 'Generate Try-On';
-      setStatus('Error: ' + (err.message || 'try-on failed'), true);
-      console.error('tryvtri error', err);
-    });
+      if (!res.ok) throw new Error(data.error || data.message || ('Request failed (' + res.status + ')'));
+
+      var images = data.images || [];
+      var out = null;
+      if (images.length > 0 && images[0].url) out = images[0].url;
+      if (!out) throw new Error('No image returned from the try-on service.');
+
+      resultImg.src = out; resultImg.hidden = false;
+      resultReady = true; refreshCartBtn(); say('');
+    } catch (err) {
+      console.error('[TryVtri]', err);
+      var m = err && err.message || '';
+      if (m === 'Failed to fetch') m = 'Could not reach the try-on service (CORS/network). Check browser console.';
+      say(m || 'Something went wrong. Please try again.', true);
+    } finally {
+      run.disabled = false;
+    }
+  });
+
+  cartBtn.addEventListener('click', async function () {
+    cartBtn.disabled = true;
+    try {
+      var base = (window.Shopify && Shopify.routes && Shopify.routes.root) ? Shopify.routes.root : '/';
+      var r = await fetch(base + 'cart/add.js', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: [{ id: Number(root.dataset.variantId), quantity: 1 }] })
+      });
+      if (!r.ok) throw new Error('Could not add to cart');
+      say('Added to cart!');
+      document.dispatchEvent(new CustomEvent('cart:refresh'));
+    } catch (e) { say(e.message, true); }
+    cartBtn.disabled = false;
   });
 })();
 </script>
