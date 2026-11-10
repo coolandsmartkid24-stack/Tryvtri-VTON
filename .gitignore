@@ -38,3 +38,5 @@ IDM-VTON-LOCAL/
 # Embedded / nested repos
 VTON TESTING/
 **/.git/
+
+.vercel

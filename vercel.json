@@ -5,8 +5,5 @@
   ],
   "routes": [
     { "src": "/api/try-on", "dest": "/api/try-on.js", "methods": ["POST", "OPTIONS"] }
-  ],
-  "env": {
-    "FAL_KEY": "@fal_key"
-  }
+  ]
 }

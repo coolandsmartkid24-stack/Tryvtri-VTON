@@ -5,9 +5,6 @@
   "description": "Vercel serverless proxy for fal.ai virtual try-on",
   "main": "try-on.js",
   "engines": {
-    "node": "18.x"
-  },
-  "dependencies": {
-    "@fal-ai/client": "^0.7.3"
+    "node": "26.x"
   }
 }
