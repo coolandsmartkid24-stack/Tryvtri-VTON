@@ -1,0 +1,23 @@
+# IDM-VTON Environment Requirements for NVIDIA RTX 5080 (Blackwell sm_120)
+# Base PyTorch: torch>=2.5.0 with CUDA 12.8+ or torch 2.12.0+cu130
+
+diffusers==0.25.0
+transformers==4.44.2
+huggingface-hub==0.25.2
+tokenizers==0.19.1
+accelerate==0.34.2
+gradio>=4.0.0
+fastapi>=0.110.0
+uvicorn>=0.28.0
+pydantic>=2.0.0
+requests>=2.31.0
+pillow>=10.2.0
+opencv-python>=4.8.0
+onnxruntime-gpu>=1.17.0
+scikit-image>=0.22.0
+einops>=0.7.0
+fvcore>=0.1.5
+iopath>=0.1.9
+cloudpickle>=3.0.0
+ninja>=1.11.0
+# detectron2: pip install 'git+https://github.com/facebookresearch/detectron2.git' --no-build-isolation

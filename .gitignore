@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.env
+.venv/
+venv/
+.env
+pip-log.txt
+pip-delete-this-directory.txt
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Large binaries / generated outputs (keep source code only)
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.mp4
+*.mov
+outputs/
+IDM-VTON-LOCAL/outputs/
+IDM-VTON-LOCAL/inputs/
+
+# Embedded / nested git repos
+VTON TESTING/fashn-vton-1.5/
+**/.git/
