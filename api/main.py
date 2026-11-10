@@ -19,11 +19,9 @@ app.add_middleware(
 
 FAL_MODEL = "fal-ai/flux-2-lora-gallery/virtual-tryon"
 
-# FAL_KEY is set as a Vercel Environment Variable
+# FAL_KEY is set as a Vercel Environment Variable; fal-client reads it from env
 if "FAL_KEY" not in os.environ:
     raise RuntimeError("FAL_KEY environment variable is not set on the server")
-
-fal_client.config(credentials=os.environ["FAL_KEY"])
 
 
 class TryOnRequest(BaseModel):
