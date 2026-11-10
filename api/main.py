@@ -13,6 +13,7 @@ browser blocks every request ("Failed to fetch").
 
 import os
 import base64
+import json
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -142,7 +143,11 @@ async def try_on(request: Request):
             ct = ""
 
         if ct.startswith("application/json"):
-            body = await request.json()
+            raw_body = await request.body()
+            try:
+                body = json.loads(raw_body)
+            except Exception:
+                raise HTTPException(status_code=422, detail="Request body is not valid JSON. Send {\"image_base64\": ..., \"garment_url\": ...}")
             req = TryOnRequest(**body)
         else:
             form = await request.form()
