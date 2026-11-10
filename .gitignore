@@ -15,6 +15,7 @@ node_modules/
 .env.local
 .env.production
 package-lock.json
+vercel.json
 
 # IDE / OS
 .vscode/
@@ -22,7 +23,7 @@ package-lock.json
 .DS_Store
 Thumbs.db
 
-# Large binaries / generated outputs (keep source code only)
+# Generated / large binaries (keep source code only)
 *.png
 *.jpg
 *.jpeg
@@ -30,9 +31,11 @@ Thumbs.db
 *.mp4
 *.mov
 outputs/
-IDM-VTON-LOCAL/outputs/
-IDM-VTON-LOCAL/inputs/
+inputs/
 
-# Embedded / nested git repos
-VTON TESTING/fashn-vton-1.5/
+# Local GPU backend (REMOVED - paused by admin; using fal.ai cloud instead)
+IDM-VTON-LOCAL/
+
+# Embedded / nested repos
+VTON TESTING/
 **/.git/
