@@ -80,40 +80,13 @@ export default async function handler(req, res) {
       return;
     }
 
-    // Convert base64 data URI to a buffer for upload
-    const match = String(image_base64).match(/^data:([^;]+);base64,(.*)$/);
-    if (!match) {
-      res.status(400).json({ error: "image_base64 must be a data URI" });
-      return;
-    }
-    const mime = match[1];
-    const buffer = Buffer.from(match[2], "base64");
-
-    // Step 1: Upload person image to fal storage
-    const uploadResp = await fetch(`${FAL_API_BASE}/storage/upload`, {
-      method: "POST",
-      headers: {
-        Authorization: `Key ${apiKey}`,
-        "Content-Type": mime,
-      },
-      body: buffer,
-    });
-
-    if (!uploadResp.ok) {
-      const errText = await uploadResp.text();
-      throw new Error(`Fal storage upload failed: ${uploadResp.status} ${errText}`);
-    }
-
-    const uploadData = await uploadResp.json();
-    const personUrl = uploadData.url;
-
-    // Step 2: Submit the try-on request
+    // Per fal.ai docs, data URIs can be passed directly in image_urls
     const finalPrompt =
       prompt ||
       "A person wearing the garment, virtual try-on, photorealistic, high detail";
 
     const input = {
-      image_urls: [personUrl, garment_url],
+      image_urls: [image_base64, garment_url],
       prompt: finalPrompt,
       guidance_scale,
       num_inference_steps,
@@ -127,17 +100,14 @@ export default async function handler(req, res) {
       ...(seed !== undefined ? { seed } : {}),
     };
 
-    const runResp = await fetch(
-      `${FAL_API_BASE}/${FAL_MODEL}/run`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Key ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(input),
-      }
-    );
+    const runResp = await fetch(`${FAL_API_BASE}/${FAL_MODEL}/run`, {
+      method: "POST",
+      headers: {
+        Authorization: `Key ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
 
     if (!runResp.ok) {
       const errText = await runResp.text();
