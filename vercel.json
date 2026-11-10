@@ -1,9 +1,15 @@
 {
   "version": 2,
   "builds": [
-    { "src": "api/try-on.js", "use": "@vercel/node" }
+    { "src": "api/main.py", "use": "@vercel/python" }
   ],
   "routes": [
-    { "src": "/api/try-on", "dest": "/api/try-on.js", "methods": ["POST", "OPTIONS"] }
-  ]
+    { "src": "/api/try-on", "dest": "/api/main.py", "methods": ["POST", "OPTIONS"] },
+    { "src": "/try-on", "dest": "/api/main.py", "methods": ["POST", "OPTIONS"] },
+    { "src": "/health", "dest": "/api/main.py", "methods": ["GET"] },
+    { "src": "/(.*)", "dest": "/api/main.py" }
+  ],
+  "env": {
+    "FAL_KEY": "@fal_key"
+  }
 }
