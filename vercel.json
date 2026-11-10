@@ -4,9 +4,9 @@
     { "src": "api/main.py", "use": "@vercel/python" }
   ],
   "routes": [
-    { "src": "/api/try-on", "dest": "/api/main.py", "methods": ["POST", "OPTIONS"] },
-    { "src": "/try-on", "dest": "/api/main.py", "methods": ["POST", "OPTIONS"] },
-    { "src": "/health", "dest": "/api/main.py", "methods": ["GET"] },
+    { "src": "/api/try-on", "dest": "/api/main.py", "methods": ["POST", "OPTIONS", "GET"] },
+    { "src": "/try-on", "dest": "/api/main.py", "methods": ["POST", "OPTIONS", "GET"] },
+    { "src": "/health", "dest": "/api/main.py", "methods": ["GET", "OPTIONS"] },
     { "src": "/(.*)", "dest": "/api/main.py" }
   ]
 }

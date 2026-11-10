@@ -5,12 +5,12 @@ Endpoints:
   POST /api/try-on   — person image (data URI) + garment URL (Shopify CDN) → result image URL
   GET  /health       — health check
 
-Authentication: FAL_KEY environment variable (set on Vercel, never exposed to browser).
-CORS: open to all origins so Shopify storefronts can call it directly.
+Authentication: FAL_KEY environment variable (set on Vercel project settings, never exposed to browser).
+CORS: explicit headers on EVERY response (including errors and OPTIONS preflight).
 """
 
 import os
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
@@ -25,9 +25,38 @@ FAL_MODEL = "fal-ai/flux-2-lora-gallery/virtual-tryon"
 if "FAL_KEY" not in os.environ:
     raise RuntimeError("FAL_KEY environment variable is not set on the server")
 
+# CORS headers applied to every response
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Max-Age": "86400",
+}
+
+
+def cors_json(content: Any, status_code: int = 200) -> JSONResponse:
+    """Return JSONResponse with CORS headers always present."""
+    return JSONResponse(content=content, status_code=status_code, headers=CORS_HEADERS)
+
+
+# ── Preflight (OPTIONS) — must return 200 with CORS headers ──────────────────
+
+@app.options("/api/try-on")
+@app.options("/try-on")
+@app.options("/health")
+def cors_preflight():
+    return cors_json({"ok": True}, 200)
+
+
+# ── Endpoints ────────────────────────────────────────────────────────────────
+
+@app.get("/health")
+def health():
+    return cors_json({"status": "healthy", "service": "tryvtri-vton-api"})
+
 
 class TryOnRequest(BaseModel):
-    image_base64: str          # data URI of customer photo (e.g. "data:image/png;base64,...")
+    image_base64: str          # data URI of customer photo
     garment_url: str           # Shopify CDN URL of the garment image
     prompt: Optional[str] = None
     guidance_scale: Optional[float] = 2.5
@@ -57,34 +86,9 @@ class TryOnResponse(BaseModel):
     prompt: Optional[str] = None
 
 
-def cors_json_response(content: Any, status_code: int = 200) -> JSONResponse:
-    """Return a JSON response with CORS headers always present (even on errors)."""
-    return JSONResponse(
-        content=content,
-        status_code=status_code,
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
-            "Access-Control-Max-Age": "86400",
-        },
-    )
-
-
-@app.options("/api/try-on")
-@app.options("/try-on")
-@app.options("/health")
-async def cors_preflight(request: Request):
-    return cors_json_response({"ok": True}, status_code=200)
-
-
-@app.get("/health")
-async def health(request: Request):
-    return cors_json_response({"status": "healthy", "service": "tryvtri-vton-api"})
-
-
 @app.post("/api/try-on")
-async def try_on(request: Request, req: TryOnRequest):
+@app.post("/try-on")
+def try_on(req: TryOnRequest):
     try:
         final_prompt = req.prompt or "A person wearing the garment, virtual try-on, photorealistic, high detail"
 
@@ -106,7 +110,7 @@ async def try_on(request: Request, req: TryOnRequest):
         if req.seed is not None:
             arguments["seed"] = req.seed
 
-        result = await fal_client.subscribe_async(
+        result = fal_client.subscribe(
             FAL_MODEL,
             arguments=arguments,
             with_logs=True,
@@ -123,7 +127,7 @@ async def try_on(request: Request, req: TryOnRequest):
                 height=img.get("height"),
             ))
 
-        return cors_json_response(
+        return cors_json(
             TryOnResponse(
                 images=images,
                 seed=result.get("seed"),
@@ -133,9 +137,12 @@ async def try_on(request: Request, req: TryOnRequest):
         )
 
     except Exception as exc:
-        return cors_json_response({"error": str(exc)}, status_code=500)
+        return cors_json({"error": str(exc)}, status_code=500)
 
 
-@app.post("/try-on")
-async def try_on_alias(request: Request, req: TryOnRequest):
-    return await try_on(request, req)
+# Mangum ASGI handler for Vercel Python serverless
+try:
+    from mangum import Mangum
+    handler = Mangum(app)
+except Exception:
+    handler = app
