@@ -2,16 +2,19 @@
 TryVtri Virtual Try-On — FastAPI serverless proxy for fal.ai on Vercel.
 
 Endpoints:
-  POST /api/try-on   — person image (data URI) + garment URL (Shopify CDN) → result image URL
+  POST /api/try-on   — person image (data URI) + garment URL → result image URL
   GET  /health       — health check
 
-Authentication: FAL_KEY environment variable (set on Vercel project settings, never exposed to browser).
-CORS: explicit headers on EVERY response (including errors and OPTIONS preflight).
+Authentication: FAL_KEY environment variable (set on Vercel project settings).
+CORS: CORSMiddleware covers ALL responses including 422/500 errors.
 """
 
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 
@@ -21,43 +24,73 @@ app = FastAPI(title="TryVtri Virtual Try-On API")
 
 FAL_MODEL = "fal-ai/flux-2-lora-gallery/virtual-tryon"
 
-# fal-client reads FAL_KEY from the environment (set on Vercel project settings)
+# fal-client reads FAL_KEY from environment (set on Vercel project settings)
 if "FAL_KEY" not in os.environ:
     raise RuntimeError("FAL_KEY environment variable is not set on the server")
 
-# CORS headers applied to every response
-CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Max-Age": "86400",
-}
+# ── CORS middleware — applies to EVERY response including 422/500 errors ─────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+    max_age=86400,
+)
 
 
-def cors_json(content: Any, status_code: int = 200) -> JSONResponse:
-    """Return JSONResponse with CORS headers always present."""
-    return JSONResponse(content=content, status_code=status_code, headers=CORS_HEADERS)
+# ── Exception handlers — guarantee CORS headers on error responses ───────────
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(
+        {"error": exc.detail},
+        status_code=exc.status_code,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Max-Age": "86400",
+        },
+    )
 
 
-# ── Preflight (OPTIONS) — must return 200 with CORS headers ──────────────────
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        {"error": "Invalid request", "details": exc.errors()},
+        status_code=422,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Max-Age": "86400",
+        },
+    )
+
+
+# ── OPTIONS preflight ────────────────────────────────────────────────────────
 
 @app.options("/api/try-on")
 @app.options("/try-on")
 @app.options("/health")
 def cors_preflight():
-    return cors_json({"ok": True}, 200)
+    return JSONResponse(
+        {"ok": True},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Max-Age": "86400",
+        },
+    )
 
 
-# ── Endpoints ────────────────────────────────────────────────────────────────
-
-@app.get("/health")
-def health():
-    return cors_json({"status": "healthy", "service": "tryvtri-vton-api"})
-
+# ── Request / response models ────────────────────────────────────────────────
 
 class TryOnRequest(BaseModel):
-    image_base64: str          # data URI of customer photo
-    garment_url: str           # Shopify CDN URL of the garment image
+    image_base64: str
+    garment_url: str
     prompt: Optional[str] = None
     guidance_scale: Optional[float] = 2.5
     num_inference_steps: Optional[int] = 40
@@ -84,6 +117,13 @@ class TryOnResponse(BaseModel):
     images: List[ImageOutput]
     seed: Optional[int] = None
     prompt: Optional[str] = None
+
+
+# ── Endpoints ────────────────────────────────────────────────────────────────
+
+@app.get("/health")
+def health():
+    return {"status": "healthy", "service": "tryvtri-vton-api"}
 
 
 @app.post("/api/try-on")
@@ -127,17 +167,14 @@ def try_on(req: TryOnRequest):
                 height=img.get("height"),
             ))
 
-        return cors_json(
-            TryOnResponse(
-                images=images,
-                seed=result.get("seed"),
-                prompt=result.get("prompt"),
-            ).model_dump(),
-            status_code=200,
+        return TryOnResponse(
+            images=images,
+            seed=result.get("seed"),
+            prompt=result.get("prompt"),
         )
 
     except Exception as exc:
-        return cors_json({"error": str(exc)}, status_code=500)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # Mangum ASGI handler for Vercel Python serverless
