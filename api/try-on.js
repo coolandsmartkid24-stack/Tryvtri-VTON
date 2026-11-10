@@ -33,6 +33,10 @@ function corsHeaders() {
   };
 }
 
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -80,7 +84,6 @@ export default async function handler(req, res) {
       return;
     }
 
-    // Per fal.ai docs, data URIs can be passed directly in image_urls
     const finalPrompt =
       prompt ||
       "A person wearing the garment, virtual try-on, photorealistic, high detail";
@@ -100,21 +103,78 @@ export default async function handler(req, res) {
       ...(seed !== undefined ? { seed } : {}),
     };
 
-    const runResp = await fetch(`${FAL_API_BASE}/${FAL_MODEL}/run`, {
-      method: "POST",
-      headers: {
-        Authorization: `Key ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(input),
-    });
+    // Step 1: Submit request
+    const submitResp = await fetch(
+      `${FAL_API_BASE}/${FAL_MODEL}/submit`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Key ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(input),
+      }
+    );
 
-    if (!runResp.ok) {
-      const errText = await runResp.text();
-      throw new Error(`Fal run failed: ${runResp.status} ${errText}`);
+    if (!submitResp.ok) {
+      const errText = await submitResp.text();
+      throw new Error(`Fal submit failed: ${submitResp.status} ${errText}`);
     }
 
-    const result = await runResp.json();
+    const submitData = await submitResp.json();
+    const requestId = submitData.request_id;
+
+    if (!requestId) {
+      throw new Error("No request_id returned from fal.ai submit");
+    }
+
+    // Step 2: Poll for result
+    let result;
+    for (let i = 0; i < 60; i++) {
+      const statusResp = await fetch(
+        `${FAL_API_BASE}/${FAL_MODEL}/status/${requestId}`,
+        {
+          headers: {
+            Authorization: `Key ${apiKey}`,
+          },
+        }
+      );
+
+      if (!statusResp.ok) {
+        throw new Error(`Fal status check failed: ${statusResp.status}`);
+      }
+
+      const statusData = await statusResp.json();
+
+      if (statusData.status === "completed" || statusData.status === "COMPLETED") {
+        // Fetch result
+        const resultResp = await fetch(
+          `${FAL_API_BASE}/${FAL_MODEL}/result/${requestId}`,
+          {
+            headers: {
+              Authorization: `Key ${apiKey}`,
+            },
+          }
+        );
+
+        if (!resultResp.ok) {
+          throw new Error(`Fal result fetch failed: ${resultResp.status}`);
+        }
+
+        result = await resultResp.json();
+        break;
+      }
+
+      if (statusData.status === "failed" || statusData.status === "FAILED") {
+        throw new Error(`Fal inference failed: ${JSON.stringify(statusData)}`);
+      }
+
+      await sleep(1000);
+    }
+
+    if (!result) {
+      throw new Error("Fal inference timed out");
+    }
 
     res.status(200).json({
       images: result.images || [],
