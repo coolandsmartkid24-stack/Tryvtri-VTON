@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/try-on.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/api/try-on", "dest": "/api/try-on.js", "methods": ["POST", "OPTIONS"] }
+  ],
+  "env": {
+    "FAL_KEY": "@fal_key"
+  }
+}
