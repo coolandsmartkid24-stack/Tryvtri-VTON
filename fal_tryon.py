@@ -8,8 +8,6 @@ Returns the generated try-on image URL.
 """
 
 import os
-import json
-import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -17,15 +15,9 @@ import fal_client
 
 FAL_MODEL = "fal-ai/flux-2-lora-gallery/virtual-tryon"
 
-# API key provided by the user. Prefer FAL_KEY env var; fall back to the key below.
-FAL_API_KEY = os.environ.get("FAL_KEY")
-
 # fal-client reads credentials from the FAL_KEY environment variable.
-if not FAL_API_KEY:
-    raise RuntimeError(
-        "FAL_KEY environment variable is not set. "
-        "Export it (export FAL_KEY=\"...\") before running, or pass it to fal_client."
-    )
+# Prefer the FAL_KEY env var; fall back to the provided key so it works out of the box.
+FAL_API_KEY = os.environ.get("FAL_KEY") or "fal_sk_7711f0802dd24dadb7e44f6b19e1365a:6af5ad5176916e463e65211e741a8022"
 os.environ["FAL_KEY"] = FAL_API_KEY
 
 
