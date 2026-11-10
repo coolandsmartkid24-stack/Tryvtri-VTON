@@ -77,6 +77,10 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.options("/try-on")
 @app.options("/api/try-on/api/try-on")
 @app.options("/try-on/api/try-on")
+@app.options("/api/try-on/")
+@app.options("/try-on/")
+@app.options("/api/try-on/api/try-on/")
+@app.options("/try-on/api/try-on/")
 def cors_preflight():
     return JSONResponse(
         {"ok": True},
@@ -133,6 +137,10 @@ def health():
 @app.post("/try-on")
 @app.post("/api/try-on/api/try-on")
 @app.post("/try-on/api/try-on")
+@app.post("/api/try-on/")
+@app.post("/try-on/")
+@app.post("/api/try-on/api/try-on/")
+@app.post("/try-on/api/try-on/")
 def try_on(req: TryOnRequest):
     try:
         garment_url = req.garment_url.strip()
