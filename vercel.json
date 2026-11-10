@@ -8,8 +8,5 @@
     { "src": "/try-on", "dest": "/api/main.py", "methods": ["POST", "OPTIONS"] },
     { "src": "/health", "dest": "/api/main.py", "methods": ["GET"] },
     { "src": "/(.*)", "dest": "/api/main.py" }
-  ],
-  "env": {
-    "FAL_KEY": "@fal_key"
-  }
+  ]
 }
