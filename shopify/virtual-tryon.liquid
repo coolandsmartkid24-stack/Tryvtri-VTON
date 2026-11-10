@@ -5,7 +5,7 @@
   Endpoint: Vercel FastAPI proxy at https://tryvtri-vton.vercel.app/api/try-on
   - Runs fal-ai/flux-2-lora-gallery/virtual-tryon on fal's cloud GPUs
   - FAL_KEY stays server-side (never in browser)
-  - CORS enabled for storefront fetch calls
+  - CORS enabled (OPTIONS preflight + all responses)
 {%- endcomment -%}
 
 {%- assign vto_variant = product.selected_or_first_available_variant -%}
