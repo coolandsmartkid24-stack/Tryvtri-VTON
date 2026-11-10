@@ -219,11 +219,19 @@ async def try_on(request: Request):
                 height=img.get("height"),
             ))
 
-        return TryOnResponse(
-            images=images,
-            seed=result.get("seed"),
-            prompt=result.get("prompt"),
-        )
+        # Compat response: every known widget parser finds its shape
+        # (data.images[0].url, data.image_url, data.url, data.result_url, ...)
+        first_url = images[0].url if images else ""
+        return JSONResponse({
+            "images": [img.model_dump() for img in images],
+            "image_url": first_url,
+            "url": first_url,
+            "result_url": first_url,
+            "imageUrl": first_url,
+            "resultUrl": first_url,
+            "seed": result.get("seed"),
+            "prompt": result.get("prompt"),
+        }, headers={"Access-Control-Allow-Origin": "*"})
 
     except HTTPException:
         raise
