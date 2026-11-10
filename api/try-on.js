@@ -22,7 +22,7 @@
  */
 
 const FAL_MODEL = "fal-ai/flux-2-lora-gallery/virtual-tryon";
-const FAL_API_BASE = "https://fal.run";
+const QUEUE_BASE = "https://queue.fal.run";
 
 function corsHeaders() {
   return {
@@ -99,18 +99,15 @@ export default async function handler(req, res) {
       ...(seed !== undefined ? { seed } : {}),
     };
 
-    // Step 1: Submit request via queue API
-    const submitResp = await fetch(
-      `https://queue.fal.run/${FAL_MODEL}/submit`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Key ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ input }),
-      }
-    );
+    // Step 1: Submit request — fal.ai wraps input in { input: {...} }
+    const submitResp = await fetch(`${QUEUE_BASE}/${FAL_MODEL}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Key ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ input }),
+    });
 
     if (!submitResp.ok) {
       const errText = await submitResp.text();
@@ -119,22 +116,21 @@ export default async function handler(req, res) {
 
     const submitData = await submitResp.json();
     const requestId = submitData.request_id;
+    const statusUrl = submitData.status_url;
+    const responseUrl = submitData.response_url;
 
-    if (!requestId) {
-      throw new Error("No request_id returned from fal.ai submit");
+    if (!requestId || !statusUrl || !responseUrl) {
+      throw new Error("Missing request_id/status_url/response_url from fal.ai submit");
     }
 
-    // Step 2: Poll for result
+    // Step 2: Poll status_url until completed
     let result;
     for (let i = 0; i < 120; i++) {
-      const statusResp = await fetch(
-        `https://queue.fal.run/${FAL_MODEL}/status/${requestId}`,
-        {
-          headers: {
-            Authorization: `Key ${apiKey}`,
-          },
-        }
-      );
+      const statusResp = await fetch(statusUrl, {
+        headers: {
+          Authorization: `Key ${apiKey}`,
+        },
+      });
 
       if (!statusResp.ok) {
         throw new Error(`Fal status check failed: ${statusResp.status}`);
@@ -143,20 +139,6 @@ export default async function handler(req, res) {
       const statusData = await statusResp.json();
 
       if (statusData.status === "completed" || statusData.status === "COMPLETED") {
-        const resultResp = await fetch(
-          `https://queue.fal.run/${FAL_MODEL}/result/${requestId}`,
-          {
-            headers: {
-              Authorization: `Key ${apiKey}`,
-            },
-          }
-        );
-
-        if (!resultResp.ok) {
-          throw new Error(`Fal result fetch failed: ${resultResp.status}`);
-        }
-
-        result = await resultResp.json();
         break;
       }
 
@@ -167,9 +149,18 @@ export default async function handler(req, res) {
       await sleep(1000);
     }
 
-    if (!result) {
-      throw new Error("Fal inference timed out");
+    // Step 3: Fetch result from response_url
+    const resultResp = await fetch(responseUrl, {
+      headers: {
+        Authorization: `Key ${apiKey}`,
+      },
+    });
+
+    if (!resultResp.ok) {
+      throw new Error(`Fal result fetch failed: ${resultResp.status}`);
     }
+
+    result = await resultResp.json();
 
     res.status(200).json({
       images: result.images || [],
