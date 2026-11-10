@@ -130,10 +130,18 @@ def health():
 @app.post("/try-on")
 def try_on(req: TryOnRequest):
     try:
+        garment_url = req.garment_url.strip()
+        if garment_url.startswith("//"):
+            garment_url = "https:" + garment_url
+        elif garment_url and not garment_url.startswith("http"):
+            garment_url = "https://" + garment_url.lstrip("/")
+        if not garment_url:
+            raise HTTPException(status_code=400, detail="garment_url is required")
+
         final_prompt = req.prompt or "A person wearing the garment, virtual try-on, photorealistic, high detail"
 
         arguments: Dict[str, Any] = {
-            "image_urls": [req.image_base64, req.garment_url],
+            "image_urls": [req.image_base64, garment_url],
             "prompt": final_prompt,
             "guidance_scale": req.guidance_scale,
             "num_inference_steps": req.num_inference_steps,
@@ -173,8 +181,14 @@ def try_on(req: TryOnRequest):
             prompt=result.get("prompt"),
         )
 
+    except HTTPException:
+        raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        s = str(exc)
+        status = 404 if ("404" in s or "Not Found" in s or "not found" in s) else 500
+        if status == 404:
+            s = "Garment or person image could not be fetched (404). The garment image must be a publicly reachable URL: " + s
+        raise HTTPException(status_code=status, detail=s)
 
 
 # Mangum ASGI handler for Vercel Python serverless

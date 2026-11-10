@@ -150,7 +150,15 @@
     run.disabled = true; resultReady = false; refreshCartBtn(); resultImg.hidden = true;
     say('Generating your try-on… this can take 20–60 seconds.');
 
-    var garmentUrl = root.dataset.garmentUrl;
+    function toAbsoluteUrl(u) {
+      if (!u) return '';
+      u = u.trim();
+      if (u.indexOf('//') === 0) return 'https:' + u;
+      if (u.indexOf('http://') === 0 || u.indexOf('https://') === 0) return u;
+      try { return new URL(u, location.origin).href; } catch (e) { return 'https://' + u.replace(/^\/+/, ''); }
+    }
+
+    var garmentUrl = toAbsoluteUrl(root.dataset.garmentUrl);
     if (!garmentUrl) {
       say('No garment image available for this product.', true);
       run.disabled = false;
