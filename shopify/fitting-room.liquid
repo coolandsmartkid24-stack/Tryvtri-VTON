@@ -1,0 +1,464 @@
+{%- if product -%}
+  {%- assign vto_variant = product.selected_or_first_available_variant -%}
+  {%- comment %} FIX 1: no trailing slash — a trailing slash creates '//api/try-on' which Vercel
+       answers with a 308 redirect, and browser CORS preflight fails on redirects {% endcomment -%}
+  {%- assign vto_api = 'https://tryvtri-vton.vercel.app' -%}
+
+  {%- assign vto_category = '' -%}
+  {%- for tag in product.tags -%}
+    {%- assign tag_l = tag | downcase -%}
+    {%- if tag_l contains 'vto:' -%}
+      {%- assign vto_category = tag_l | remove: 'vto:' | strip -%}
+    {%- endif -%}
+  {%- endfor -%}
+
+  {%- if vto_category == '' -%}
+    {%- capture vto_haystack -%}{{ product.type }} {{ product.title }} {{ product.tags | join: ' ' }}{%- endcapture -%}
+    {%- assign vto_haystack = vto_haystack | downcase -%}
+    {%- if vto_haystack contains 'sunglass' or vto_haystack contains 'glasses' or vto_haystack contains 'eyewear' or vto_haystack contains 'hat' or vto_haystack contains 'jewel' or vto_haystack contains 'necklace' or vto_haystack contains 'earring' -%}
+      {%- assign vto_category = 'accessories' -%}
+    {%- elsif vto_haystack contains 'dress' or vto_haystack contains 'gown' or vto_haystack contains 'jumpsuit' or vto_haystack contains 'maxi' -%}
+      {%- assign vto_category = 'dresses' -%}
+    {%- elsif vto_haystack contains 'jacket' or vto_haystack contains 'coat' or vto_haystack contains 'blazer' or vto_haystack contains 'hoodie' -%}
+      {%- assign vto_category = 'outerwear' -%}
+    {%- elsif vto_haystack contains 'pant' or vto_haystack contains 'jean' or vto_haystack contains 'skirt' or vto_haystack contains 'short' or vto_haystack contains 'trouser' -%}
+      {%- assign vto_category = 'bottoms' -%}
+    {%- else -%}
+      {%- assign vto_category = 'tops' -%}
+    {%- endif -%}
+  {%- endif -%}
+
+  {%- assign vto_garment_url = '' -%}
+  {%- if vto_variant.featured_image -%}
+    {%- assign vto_garment_url = vto_variant.featured_image | image_url: width: 1024 -%}
+  {%- elsif product.featured_image -%}
+    {%- assign vto_garment_url = product.featured_image | image_url: width: 1024 -%}
+  {%- endif -%}
+
+  <style>
+    .fr-wrap,.fr-modal{--ink:#14110f;--paper:#f6f1ea;--card:#fffdf9;--line:#e4dccf;--mute:#7a7268;--hot:#e4572e;--hot2:#ff8a5b;--ok:#1f7a5c;font-family:inherit;box-sizing:border-box}
+    .fr-wrap *,.fr-modal *{box-sizing:border-box}
+    .fr-wrap [hidden],.fr-modal [hidden]{display:none!important}
+
+    .fr-wrap{margin:16px 0;max-width:100%}
+    .fr-open{position:relative;display:flex;align-items:center;gap:14px;width:100%;padding:16px 18px;border:0;border-radius:18px;background:var(--ink);color:#fff;cursor:pointer;text-align:left;font-family:inherit;overflow:hidden;isolation:isolate;transition:transform .15s}
+    .fr-open:hover{transform:translateY(-1px)}
+    .fr-open::before{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(110deg,transparent 30%,rgba(255,138,91,.35) 50%,transparent 70%);transform:translateX(-100%);animation:frShine 3.6s ease-in-out infinite}
+    @keyframes frShine{0%,55%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+    .fr-ico{flex:none;width:46px;height:46px;border-radius:14px;background:linear-gradient(135deg,var(--hot),var(--hot2));display:grid;place-items:center;color:#fff}
+    .fr-open b{display:block;font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:20px;font-weight:400;letter-spacing:.2px}
+    .fr-open small{display:block;font-size:13px;color:#cfc6ba;margin-top:2px}
+    .fr-open .go{margin-left:auto;font-size:22px;color:var(--hot2)}
+    .fr-credit{font-size:11px;color:#999;margin-top:6px}
+    .fr-credit a{color:inherit}
+
+    .fr-modal{position:fixed;inset:0;z-index:2147483000;display:none;align-items:flex-end;justify-content:center;background:rgba(20,17,15,.72);backdrop-filter:blur(6px);color:var(--ink)}
+    .fr-modal.open{display:flex}
+    @media(min-width:640px){.fr-modal{align-items:center;padding:20px}}
+    .fr-sheet{width:100%;max-width:460px;max-height:94vh;display:flex;flex-direction:column;background:var(--paper);border-radius:26px 26px 0 0;overflow:hidden;animation:frUp .28s ease}
+    @media(min-width:640px){.fr-sheet{border-radius:26px}}
+    @keyframes frUp{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+    .fr-top{display:flex;align-items:center;gap:8px;padding:14px 16px 10px}
+    .fr-top h3{flex:1;margin:0;font-family:Georgia,'Times New Roman',serif;font-style:italic;font-weight:400;font-size:22px}
+    .fr-ib{border:0;background:#ece5d9;width:36px;height:36px;border-radius:50%;font-size:20px;line-height:1;cursor:pointer;color:var(--ink);display:grid;place-items:center}
+    .fr-lb{border:0;background:var(--ink);color:#fff;border-radius:999px;padding:8px 14px;font-size:13px;cursor:pointer;font-family:inherit}
+    .fr-steps{display:flex;gap:6px;padding:0 18px 12px}
+    .fr-steps i{flex:1;height:4px;border-radius:4px;background:#e0d7c9;transition:background .3s}
+    .fr-steps i.on{background:linear-gradient(90deg,var(--hot),var(--hot2))}
+    .fr-body{padding:4px 18px 20px;overflow:auto;flex:1}
+    .fr-view{display:none}
+    .fr-view.on{display:block;animation:frFade .25s ease}
+    @keyframes frFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+    .fr-btn{display:block;width:100%;padding:16px;border:0;border-radius:16px;background:linear-gradient(135deg,var(--hot),var(--hot2));color:#fff;font-size:16px;font-weight:700;cursor:pointer;margin-top:14px;font-family:inherit;box-shadow:0 8px 20px rgba(228,87,46,.3)}
+    .fr-btn[disabled]{opacity:.4;cursor:not-allowed;box-shadow:none}
+    .fr-btn.dark{background:var(--ink);box-shadow:none}
+    .fr-btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--ink);box-shadow:none}
+    .fr-note{font-size:12px;color:var(--mute);text-align:center;margin-top:10px;line-height:1.45}
+    .fr-msg{font-size:14px;text-align:center;margin-top:10px;min-height:18px}
+    .fr-msg.err{color:#b00020}
+    .fr-msg.ok{color:var(--ok)}
+
+    .fr-promise{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:20px}
+    .fr-promise h4{margin:0 0 4px;font-family:Georgia,serif;font-style:italic;font-weight:400;font-size:24px}
+    .fr-promise p{margin:0;color:var(--mute);font-size:14px}
+    .fr-tl{display:flex;align-items:flex-start;justify-content:space-between;margin:20px 0 6px;position:relative}
+    .fr-tl::before{content:"";position:absolute;left:12%;right:12%;top:21px;height:2px;background:repeating-linear-gradient(90deg,var(--line) 0 6px,transparent 6px 12px)}
+    .fr-tl div{flex:1;text-align:center;font-size:12px;position:relative}
+    .fr-tl span{display:grid;place-items:center;width:42px;height:42px;margin:0 auto 6px;border-radius:50%;background:var(--paper);border:2px solid var(--ink);font-size:18px}
+    .fr-tl div:last-child span{background:var(--ok);border-color:var(--ok);color:#fff}
+    .fr-tl b{display:block;font-size:13px}
+    .fr-tl em{font-style:normal;color:var(--mute)}
+    .fr-pts{list-style:none;margin:16px 0 0;padding:0;font-size:14px}
+    .fr-pts li{display:flex;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+    .fr-pts li::before{content:"✓";flex:none;width:20px;height:20px;border-radius:50%;background:var(--ok);color:#fff;font-size:12px;display:grid;place-items:center;margin-top:1px}
+
+    .fr-drop{display:block;border:2px dashed #c9bfae;border-radius:22px;padding:38px 16px;text-align:center;cursor:pointer;background:var(--card);color:var(--mute);font-size:14px;transition:border-color .2s}
+    .fr-drop:hover{border-color:var(--hot)}
+    .fr-drop .pl{display:grid;place-items:center;width:56px;height:56px;margin:0 auto 10px;border-radius:50%;background:var(--ink);color:#fff;font-size:26px}
+    .fr-drop b{display:block;color:var(--ink);font-size:17px;margin-bottom:4px}
+    .fr-drop input{display:none}
+    .fr-stage{position:relative;border-radius:22px;overflow:hidden;background:#e9e2d5}
+    .fr-stage img{display:block;width:100%;max-height:50vh;object-fit:contain;margin:0 auto}
+    .fr-chg{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);border:0;background:rgba(255,255,255,.95);border-radius:999px;padding:8px 16px;font-size:13px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);font-family:inherit}
+    .fr-scan{position:absolute;inset:0;display:none;background:rgba(20,17,15,.35)}
+    .fr-stage.busy .fr-scan{display:block}
+    .fr-stage.busy .fr-chg{display:none}
+    .fr-scan::before{content:"";position:absolute;left:0;right:0;height:70px;background:linear-gradient(180deg,transparent,rgba(255,138,91,.75),transparent);animation:frScan 1.8s ease-in-out infinite}
+    @keyframes frScan{0%{top:-70px}100%{top:100%}}
+    .fr-scan span{position:absolute;left:12px;right:12px;bottom:12px;text-align:center;color:#fff;font-size:14px;background:rgba(20,17,15,.7);border-radius:12px;padding:9px}
+
+    .fr-cmp{--p:50%;position:relative;border-radius:22px;overflow:hidden;background:#e9e2d5;aspect-ratio:3/4;user-select:none;touch-action:pan-y}
+    .fr-cmp img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+    .fr-cmp .bf{clip-path:inset(0 calc(100% - var(--p)) 0 0)}
+    .fr-cmp .hd{position:absolute;top:0;bottom:0;left:var(--p);width:3px;margin-left:-1.5px;background:#fff;box-shadow:0 0 8px rgba(0,0,0,.4);pointer-events:none}
+    .fr-cmp .hd::after{content:"⇆";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:38px;height:38px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:16px;box-shadow:0 2px 10px rgba(0,0,0,.3)}
+    .fr-cmp input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:ew-resize;margin:0}
+    .fr-cmp .tag{position:absolute;top:12px;font-size:11px;letter-spacing:1px;text-transform:uppercase;background:rgba(20,17,15,.75);color:#fff;border-radius:999px;padding:4px 10px}
+    .fr-cmp .tag.l{left:12px}.fr-cmp .tag.r{right:12px;background:var(--hot)}
+    .fr-cmp.nobefore .bf,.fr-cmp.nobefore .hd,.fr-cmp.nobefore input,.fr-cmp.nobefore .tag.l{display:none}
+
+    .fr-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .fr-tile{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;display:flex;flex-direction:column}
+    .fr-tile img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block;background:#e9e2d5}
+    .fr-tile .in{padding:10px}
+    .fr-tile .t{font-size:12px;font-weight:700;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .fr-tile .d{font-size:11px;color:var(--mute);margin-bottom:8px}
+    .fr-tile .fr-btn{margin-top:0;padding:10px;font-size:13px;border-radius:12px}
+    .fr-row{display:flex;gap:6px;margin-top:6px}
+    .fr-row a,.fr-row button{flex:1;text-align:center;font-size:12px;padding:8px 2px;border:1px solid var(--line);background:#fff;border-radius:10px;color:var(--ink);text-decoration:none;cursor:pointer;font-family:inherit}
+  </style>
+
+  <script type="application/json" id="fr-ctx-{{ product.id }}">
+    {
+      "variants": [
+        {%- for variant in product.variants -%}
+        {
+          "id": {{ variant.id | json }},
+          "priceFormatted": {{ variant.price | money | strip_html | json }},
+          "available": {{ variant.available | json }},
+          "imageUrl": {%- if variant.featured_image -%}{{ variant.featured_image | image_url: width: 1024 | json }}{%- elsif product.featured_image -%}{{ product.featured_image | image_url: width: 1024 | json }}{%- else -%}null{%- endif -%}
+        }{%- unless forloop.last -%},{%- endunless -%}
+        {%- endfor -%}
+      ]
+    }
+  </script>
+
+  <div class="fr-wrap" id="fr-{{ product.id }}"
+       data-api="{{ vto_api }}"
+       data-shop="{{ shop.permanent_domain }}"
+       data-product-id="{{ product.id }}"
+       data-product-title="{{ product.title | escape }}"
+       data-category="{{ vto_category }}"
+       data-variant-id="{{ vto_variant.id }}"
+       data-available="{{ vto_variant.available }}"
+       data-garment-url="{{ vto_garment_url }}"
+       data-price-formatted="{{ vto_variant.price | money | strip_html | escape }}">
+
+    <button type="button" class="fr-open" data-open aria-haspopup="dialog">
+      <span class="fr-ico">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 7a2 2 0 1 0-2-2"/><path d="M12 7v2l8.5 5.4a1.3 1.3 0 0 1-.7 2.4H4.2a1.3 1.3 0 0 1-.7-2.4L12 9"/></svg>
+      </span>
+      <span><b>Step into the Fitting Room</b><small>See this {% if vto_category == 'accessories' %}piece{% else %}outfit{% endif %} on you &middot; takes seconds</small></span>
+      <span class="go">&rarr;</span>
+    </button>
+    <div class="fr-credit">Powered by <a href="https://fit.tryvtri.com/" target="_blank" rel="noopener">TryVtri</a></div>
+
+    <div class="fr-modal" data-modal role="dialog" aria-modal="true" aria-label="Virtual fitting room">
+      <div class="fr-sheet">
+        <div class="fr-top">
+          <button type="button" class="fr-ib" data-back hidden aria-label="Back">&#8249;</button>
+          <h3 data-title>The zero-trace promise</h3>
+          <button type="button" class="fr-lb" data-hist hidden>Lookbook <span data-count>0</span></button>
+          <button type="button" class="fr-ib" data-close aria-label="Close">&times;</button>
+        </div>
+        <div class="fr-steps"><i data-s="1"></i><i data-s="2"></i><i data-s="3"></i></div>
+
+        <div class="fr-body">
+
+          <div class="fr-view" data-view="consent">
+            <div class="fr-promise">
+              <h4>Your photo, never kept.</h4>
+              <p>We use it for one try-on, then it&rsquo;s gone.</p>
+              <div class="fr-tl">
+                <div><span>&#128247;</span><b>Photo</b><em>you upload</em></div>
+                <div><span>&#10024;</span><b>Look</b><em>we create</em></div>
+                <div><span>&#10003;</span><b>Erased</b><em>right away</em></div>
+              </div>
+              <ul class="fr-pts">
+                <li><span><b>Not stored.</b> We don&rsquo;t save your pictures.</span></li>
+                <li><span><b>Deleted immediately</b> once your look is generated.</span></li>
+                <li><span><b>Never shared</b> or used for anything else.</span></li>
+              </ul>
+            </div>
+            <button type="button" class="fr-btn" data-accept>Got it &mdash; open the fitting room</button>
+            <div class="fr-note">Used solely for try-on. AI results may vary.</div>
+          </div>
+
+          <div class="fr-view" data-view="upload">
+            <label class="fr-drop" data-drop>
+              <span class="pl">+</span>
+              <b>Add your photo</b>
+              Clear, front-facing, full-body &middot; JPG, PNG or WebP &middot; max 10&nbsp;MB
+              <input type="file" accept="image/jpeg,image/png,image/webp" data-file>
+            </label>
+            <div class="fr-stage" data-stage hidden>
+              <img data-person alt="Your photo">
+              <button type="button" class="fr-chg" data-change>&#128247; Change photo</button>
+              <div class="fr-scan"><span data-status>Reading your pose&hellip;</span></div>
+            </div>
+            <button type="button" class="fr-btn" data-run disabled>Generate my look</button>
+            <div class="fr-msg" data-msg aria-live="polite"></div>
+            <div class="fr-note">Deleted right after your look is created. AI results may vary.</div>
+          </div>
+
+          <div class="fr-view" data-view="result">
+            <div class="fr-cmp" data-cmp>
+              <img data-after alt="Your look">
+              <img class="bf" data-before alt="Your photo">
+              <span class="tag l">Before</span><span class="tag r">After</span>
+              <div class="hd"></div>
+              <input type="range" min="0" max="100" value="50" data-slider aria-label="Compare before and after">
+            </div>
+            <button type="button" class="fr-btn dark" data-cart hidden>Add to cart &middot; <span data-price></span></button>
+            <button type="button" class="fr-btn ghost" data-again>Try another photo</button>
+            <div class="fr-msg" data-msg2 aria-live="polite"></div>
+          </div>
+
+          <div class="fr-view" data-view="book">
+            <div class="fr-grid" data-list></div>
+            <div class="fr-note">Your lookbook lives only in this tab. Close the page and it&rsquo;s gone.</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    try {
+      var ID = '{{ product.id }}';
+      var root = document.getElementById('fr-' + ID);
+      if (!root) { console.error('[FittingRoom] root not found'); return; }
+      var modal = root.querySelector('[data-modal]');
+      var openBtn = root.querySelector('[data-open]');
+      document.body.appendChild(modal);
+      var $ = function (s) { return modal.querySelector(s); };
+
+      var file = $('[data-file]'), run = $('[data-run]'), drop = $('[data-drop]'), stage = $('[data-stage]'),
+          personImg = $('[data-person]'), statusEl = $('[data-status]'),
+          msg = $('[data-msg]'), msg2 = $('[data-msg2]'),
+          cmp = $('[data-cmp]'), before = $('[data-before]'), after = $('[data-after]'), slider = $('[data-slider]'),
+          cartBtn = $('[data-cart]'), priceEl = $('[data-price]'),
+          titleEl = $('[data-title]'), backBtn = $('[data-back]'), histBtn = $('[data-hist]'),
+          countEl = $('[data-count]'), listEl = $('[data-list]');
+
+      var ctx = { variants: [] };
+      try { ctx = JSON.parse(document.getElementById('fr-ctx-' + ID).textContent); } catch (e) { console.warn('[FittingRoom] variants unavailable', e); }
+
+      var photo = null, personUrl = null, resultReady = false, looks = [], view = 'consent', prevView = 'upload', timer = null;
+      var TITLES = { consent: 'The zero-trace promise', upload: 'Your photo', result: 'Your look', book: 'Lookbook' };
+      var STEP = { consent: 1, upload: 2, result: 3, book: 3 };
+      var STATUS = ['Reading your pose…', 'Draping the fabric…', 'Matching light & shadow…', 'Final touches…'];
+
+      function say(t, cls) { [msg, msg2].forEach(function (m) { m.textContent = t || ''; m.className = 'fr-msg' + (cls ? ' ' + cls : ''); }); }
+      function avail() { return root.dataset.available === 'true'; }
+      function refreshCart() { cartBtn.hidden = !(resultReady && avail()); }
+
+      function show(v) {
+        if (v === 'book' && view !== 'book') prevView = view;
+        view = v;
+        modal.querySelectorAll('[data-view]').forEach(function (el) { el.classList.toggle('on', el.getAttribute('data-view') === v); });
+        modal.querySelectorAll('[data-s]').forEach(function (el) { el.classList.toggle('on', Number(el.getAttribute('data-s')) <= STEP[v]); });
+        titleEl.textContent = TITLES[v];
+        backBtn.hidden = v !== 'book';
+        histBtn.hidden = !(looks.length && v !== 'book' && v !== 'consent');
+        countEl.textContent = looks.length;
+        if (v === 'book') renderBook();
+      }
+
+      function consented() { try { return sessionStorage.getItem('fr_ok') === '1'; } catch (e) { return false; } }
+      function setConsented() { try { sessionStorage.setItem('fr_ok', '1'); } catch (e) {} }
+
+      function open() {
+        priceEl.textContent = root.dataset.priceFormatted;
+        modal.classList.add('open');
+        document.documentElement.style.overflow = 'hidden';
+        show(consented() ? (view === 'consent' ? 'upload' : view) : 'consent');
+      }
+      function close() {
+        modal.classList.remove('open');
+        document.documentElement.style.overflow = '';
+        if (view === 'result') { before.removeAttribute('src'); cmp.classList.add('nobefore'); }
+        clearPhoto();
+      }
+
+      openBtn.addEventListener('click', open);
+      $('[data-close]').addEventListener('click', close);
+      modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && modal.classList.contains('open')) close(); });
+      $('[data-accept]').addEventListener('click', function () { setConsented(); show('upload'); });
+      backBtn.addEventListener('click', function () { show(prevView || 'upload'); });
+      histBtn.addEventListener('click', function () { show('book'); });
+      $('[data-again]').addEventListener('click', function () { clearPhoto(); before.removeAttribute('src'); cmp.classList.add('nobefore'); show('upload'); });
+
+      slider.addEventListener('input', function () { cmp.style.setProperty('--p', slider.value + '%'); });
+
+      function clearPhoto() {
+        photo = null; file.value = '';
+        if (personUrl) { URL.revokeObjectURL(personUrl); personUrl = null; }
+        personImg.removeAttribute('src'); stage.hidden = true; drop.hidden = false; run.disabled = true; say('');
+      }
+      $('[data-change]').addEventListener('click', function () { file.click(); });
+      file.addEventListener('change', function () {
+        var f = file.files[0];
+        if (!f) return;
+        if (f.size > 10 * 1024 * 1024) { say('That photo is too large (max 10 MB).', 'err'); return; }
+        photo = f;
+        if (personUrl) URL.revokeObjectURL(personUrl);
+        personUrl = URL.createObjectURL(f);
+        personImg.src = personUrl; stage.hidden = false; drop.hidden = true; run.disabled = false; say('');
+      });
+
+      function startScan() {
+        var i = 0; stage.classList.add('busy'); statusEl.textContent = STATUS[0];
+        timer = setInterval(function () { i = (i + 1) % STATUS.length; statusEl.textContent = STATUS[i]; }, 2600);
+      }
+      function stopScan() { stage.classList.remove('busy'); clearInterval(timer); timer = null; }
+
+      // FIX 2: normalize the API base — tolerate trailing slash or a full endpoint value
+      var API = String(root.dataset.api || 'https://tryvtri-vton.vercel.app').trim();
+      API = API.replace(/\/+$/, '').replace(/\/api\/try-?$/, '');
+
+      run.addEventListener('click', async function () {
+        if (!photo) return;
+        run.disabled = true; resultReady = false; refreshCart(); say(''); startScan();
+
+        var fd = new FormData();
+        fd.append('person_image', photo);
+        fd.append('garment_url', root.dataset.garmentUrl);
+        fd.append('category', root.dataset.category);
+        fd.append('shop', root.dataset.shop);
+        fd.append('product_id', root.dataset.productId);
+        fd.append('variant_id', root.dataset.variantId);
+
+        try {
+          var res = await fetch(API + '/api/try-on', { method: 'POST', body: fd });
+          var raw = await res.text(), data = {};
+          try { data = JSON.parse(raw); } catch (e) { console.warn('[FittingRoom] non-JSON response:', raw.slice(0, 300)); }
+          console.log('[FittingRoom] response', res.status, data);
+          if (!res.ok) {
+            var detail = data.error || data.message;
+            if (!detail && data.detail) detail = (typeof data.detail === 'string') ? data.detail : JSON.stringify(data.detail);
+            throw new Error(detail || ('Request failed (' + res.status + ')'));
+          }
+
+          // FIX 3: parse the API's actual shape first, then the legacy fallbacks
+          var out = null;
+          if (data.images && data.images.length && data.images[0] && data.images[0].url) out = data.images[0].url;
+          out = out || data.result_url || data.resultUrl || data.image_url || data.imageUrl || (data.output && data.output.url) || data.url || data.image || data.result;
+          if (Array.isArray(out)) out = out[0];
+          if (out && typeof out === 'object') out = out.url || out.src;
+          if (!out) throw new Error('No image came back from the try-on service.');
+
+          after.src = out; before.src = personUrl; cmp.classList.remove('nobefore');
+          cmp.style.setProperty('--p', '50%'); slider.value = 50;
+          resultReady = true;
+          looks.unshift({
+            src: out, title: root.dataset.productTitle, variantId: root.dataset.variantId,
+            price: root.dataset.priceFormatted, available: avail(),
+            date: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+          });
+          refreshCart(); stopScan(); show('result');
+          file.value = ''; photo = null; stage.hidden = true; drop.hidden = false; run.disabled = true;
+        } catch (err) {
+          console.error('[FittingRoom]', err);
+          stopScan();
+          var m = (err && err.message) || '';
+          if (m === 'Failed to fetch') m = 'Could not reach the try-on service. Hard-refresh the page (Ctrl+Shift+R) and try again.';
+          say(m || 'Something went wrong. Please try again.', 'err');
+          run.disabled = !photo;
+        }
+      });
+
+      async function addToCart(variantId, btn, out) {
+        btn.disabled = true;
+        try {
+          var base = (window.Shopify && Shopify.routes && Shopify.routes.root) ? Shopify.routes.root : '/';
+          var r = await fetch(base + 'cart/add.js', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: [{ id: Number(variantId), quantity: 1 }] })
+          });
+          if (!r.ok) throw new Error('Could not add to cart');
+          out.textContent = 'Added to cart ✓'; out.className = 'fr-msg ok';
+          document.dispatchEvent(new CustomEvent('cart:refresh'));
+        } catch (e) { out.textContent = e.message; out.className = 'fr-msg err'; }
+        btn.disabled = false;
+      }
+      cartBtn.addEventListener('click', function () { addToCart(root.dataset.variantId, cartBtn, msg2); });
+
+      function renderBook() {
+        listEl.innerHTML = '';
+        if (!looks.length) { listEl.innerHTML = '<div class="fr-note" style="grid-column:1/-1">Nothing here yet.</div>'; return; }
+        looks.forEach(function (h, i) {
+          var t = document.createElement('div'); t.className = 'fr-tile';
+          var img = document.createElement('img'); img.src = h.src; img.alt = 'Look'; t.appendChild(img);
+          var inn = document.createElement('div'); inn.className = 'in';
+          var a = document.createElement('div'); a.className = 't'; a.textContent = h.title;
+          var b = document.createElement('div'); b.className = 'd'; b.textContent = h.date;
+          inn.appendChild(a); inn.appendChild(b);
+          var note = document.createElement('div'); note.className = 'fr-msg'; note.style.cssText = 'min-height:0;margin:0 0 6px;font-size:12px';
+          if (h.available) {
+            var cb = document.createElement('button'); cb.type = 'button'; cb.className = 'fr-btn dark';
+            cb.textContent = 'Add · ' + h.price;
+            cb.addEventListener('click', function () { addToCart(h.variantId, cb, note); });
+            inn.appendChild(cb);
+          }
+          inn.appendChild(note);
+          var row = document.createElement('div'); row.className = 'fr-row';
+          var sv = document.createElement('a'); sv.textContent = 'Save'; sv.href = h.src; sv.download = 'my-look.png'; sv.target = '_blank'; sv.rel = 'noopener';
+          var del = document.createElement('button'); del.type = 'button'; del.textContent = 'Delete';
+          del.addEventListener('click', function () { looks.splice(i, 1); if (!looks.length) show('upload'); else { countEl.textContent = looks.length; renderBook(); } });
+          row.appendChild(sv); row.appendChild(del); inn.appendChild(row);
+          t.appendChild(inn); listEl.appendChild(t);
+        });
+      }
+
+      function applyVariant(id) {
+        id = String(id);
+        for (var i = 0; i < ctx.variants.length; i++) {
+          var v = ctx.variants[i];
+          if (String(v.id) === id) {
+            root.dataset.variantId = v.id;
+            root.dataset.priceFormatted = v.priceFormatted;
+            root.dataset.available = String(v.available);
+            if (v.imageUrl) root.dataset.garmentUrl = v.imageUrl;
+            priceEl.textContent = v.priceFormatted;
+            refreshCart();
+            return;
+          }
+        }
+      }
+      function currentId() {
+        var m = location.search.match(/[?&]variant=(\d+)/);
+        if (m) return m[1];
+        var input = document.querySelector('form[action*="/cart/add"] [name="id"]');
+        return input ? input.value : null;
+      }
+      document.addEventListener('change', function (e) { if (modal.contains(e.target)) return; var id = currentId(); if (id) applyVariant(id); });
+      document.addEventListener('variant:change', function (e) {
+        var id = (e.detail && e.detail.variant && e.detail.variant.id) || currentId();
+        if (id) applyVariant(id);
+      });
+      window.addEventListener('popstate', function () { var id = currentId(); if (id) applyVariant(id); });
+      var rs = window.history.replaceState;
+      window.history.replaceState = function () { var r = rs.apply(this, arguments); var id = currentId(); if (id) applyVariant(id); return r; };
+
+      console.log('[FittingRoom] ready (v2)');
+    } catch (e) {
+      console.error('[FittingRoom] failed to start', e);
+    }
+  })();
+  </script>
+{%- endif -%}
