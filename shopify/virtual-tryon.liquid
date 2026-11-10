@@ -1,273 +1,579 @@
 {%- comment %}
-  TryVtri Virtual Try-On — Shopify Custom Liquid block (fal.ai powered)
-  Paste into: Shopify Theme Editor > Product page > Add block > Custom Liquid
+  TryVtri "Try It On" — Shopify Custom Liquid block (fal.ai powered)
+  Style: minimal studio UI — consent screen, upload, progress bar with %,
+  result with AI-MODIFIED badge, add-to-cart + share, try-on history drawer.
 
-  Endpoint: Vercel FastAPI proxy at https://tryvtri-vton.vercel.app/api/try-on
-  - Runs fal-ai/flux-2-lora-gallery/virtual-tryon on fal's cloud GPUs
-  - FAL_KEY stays server-side (never in browser)
-  - CORS enabled (OPTIONS preflight + all responses)
+  Paste into: Shopify Theme Editor > Product page > Add block > Custom Liquid
+  API: https://tryvtri-vton.vercel.app/api/try-on (JSON or FormData accepted)
 {%- endcomment -%}
 
-{%- assign vto_variant = product.selected_or_first_available_variant -%}
-{%- assign vto_api = 'https://tryvtri-vton.vercel.app' -%}
+{%- liquid
+  assign vto_variant = product.selected_or_first_available_variant
 
-{%- assign vto_category = '' -%}
-{%- for tag in product.tags -%}
-  {%- assign tag_l = tag | downcase -%}
-  {%- if tag_l contains 'vto:' -%}
-    {%- assign vto_category = tag_l | remove: 'vto:' | strip -%}
-  {%- endif -%}
-{%- endfor -%}
+  assign vto_category = ''
+  for tag in product.tags
+    assign tag_l = tag | downcase
+    if tag_l contains 'vto:'
+      assign vto_category = tag_l | remove: 'vto:' | strip
+    endif
+  endfor
 
-{%- if vto_category == '' -%}
-  {%- capture vto_haystack -%}{{ product.type }} {{ product.title }} {{ product.tags | join: ' ' }}{%- endcapture -%}
-  {%- assign vto_haystack = vto_haystack | downcase -%}
-  {%- if vto_haystack contains 'sunglass' or vto_haystack contains 'glasses' or vto_haystack contains 'eyewear' or vto_haystack contains 'hat' or vto_haystack contains 'cap' or vto_haystack contains 'jewel' or vto_haystack contains 'necklace' or vto_haystack contains 'earring' -%}
-    {%- assign vto_category = 'accessories' -%}
-  {%- elsif vto_haystack contains 'dress' or vto_haystack contains 'gown' or vto_haystack contains 'jumpsuit' or vto_haystack contains 'maxi' -%}
-    {%- assign vto_category = 'dresses' -%}
-  {%- elsif vto_haystack contains 'jacket' or vto_haystack contains 'coat' or vto_haystack contains 'blazer' or vto_haystack contains 'hoodie' -%}
-    {%- assign vto_category = 'outerwear' -%}
-  {%- elsif vto_haystack contains 'pant' or vto_haystack contains 'jean' or vto_haystack contains 'skirt' or vto_haystack contains 'short' or vto_haystack contains 'trouser' -%}
-    {%- assign vto_category = 'bottoms' -%}
-  {%- else -%}
-    {%- assign vto_category = 'tops' -%}
-  {%- endif -%}
-{%- endif -%}
+  if vto_category == ''
+    capture vto_haystack
+      echo product.type
+      echo ' '
+      echo product.title
+      echo ' '
+      echo product.tags | join: ' '
+    endcapture
+    assign vto_haystack = vto_haystack | downcase
+    if vto_haystack contains 'sunglass' or vto_haystack contains 'glasses' or vto_haystack contains 'eyewear' or vto_haystack contains 'hat' or vto_haystack contains 'cap' or vto_haystack contains 'jewel' or vto_haystack contains 'necklace' or vto_haystack contains 'earring'
+      assign vto_category = 'accessories'
+    elsif vto_haystack contains 'dress' or vto_haystack contains 'gown' or vto_haystack contains 'jumpsuit' or vto_haystack contains 'maxi'
+      assign vto_category = 'dresses'
+    elsif vto_haystack contains 'jacket' or vto_haystack contains 'coat' or vto_haystack contains 'blazer' or vto_haystack contains 'hoodie'
+      assign vto_category = 'outerwear'
+    elsif vto_haystack contains 'pant' or vto_haystack contains 'jean' or vto_haystack contains 'skirt' or vto_haystack contains 'short' or vto_haystack contains 'trouser'
+      assign vto_category = 'bottoms'
+    else
+      assign vto_category = 'tops'
+    endif
+  endif
 
-{%- assign vto_garment_url = '' -%}
-{%- if vto_variant.featured_image -%}
-  {%- assign vto_garment_url = vto_variant.featured_image | image_url: width: 1024 -%}
-{%- elsif product.featured_image -%}
-  {%- assign vto_garment_url = product.featured_image | image_url: width: 1024 -%}
-{%- endif -%}
+  assign vto_garment_url = ''
+  if vto_variant.featured_image
+    assign vto_garment_url = vto_variant.featured_image | image_url: width: 1024
+  elsif product.featured_image
+    assign vto_garment_url = product.featured_image | image_url: width: 1024
+  endif
+-%}
 
 <style>
-  .tv-wrap{margin:16px 0;font-family:inherit;box-sizing:border-box;max-width:100%}
-  .tv-wrap *{box-sizing:border-box}
-  .tv-btn{display:flex;align-items:center;gap:14px;width:100%;padding:14px 18px;border:1px solid #16130f;border-radius:8px;background:#fff6e5;box-shadow:3px 3px 0 #16130f;cursor:pointer;text-align:left;font-family:inherit}
-  .tv-btn b{display:block;font-size:18px;color:#16130f}
-  .tv-btn small{font-size:13px;color:#6f6a61}
-  .tv-ico{width:44px;height:44px;border-radius:8px;background:#2563eb;color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:none}
-  .tv-credit{font-size:11px;color:#888;margin-top:6px}
-  .tv-credit a{color:inherit}
-  .tv-modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:2147483000;padding:16px;font-family:inherit}
-  .tv-modal *{box-sizing:border-box}
+  .tv-wrap{--ink:#0f1115;--sub:#5f6368;--line:#e8eaed;--card:#f4f5f6;--accent:#111;--hi:#f5f5f5;font-family:inherit;color:var(--ink);box-sizing:border-box;margin:14px 0;max-width:100%}
+  .tv-wrap *,.tv-modal *{box-sizing:border-box}
+  .tv-wrap [hidden],.tv-modal [hidden]{display:none!important}
+  button{font-family:inherit}
+
+  /* launcher */
+  .tv-launch{display:flex;align-items:center;gap:12px;width:100%;padding:15px 16px;border:1px solid var(--line);border-radius:14px;background:#fff;cursor:pointer;text-align:left;transition:border-color .15s}
+  .tv-launch:hover{border-color:#c9ccd1}
+  .tv-launch .ico{flex:none;width:40px;height:40px;border-radius:10px;background:var(--accent);color:#fff;display:grid;place-items:center}
+  .tv-launch b{display:block;font-size:17px}
+  .tv-launch small{display:block;font-size:12.5px;color:var(--sub);margin-top:2px}
+  .tv-launch .go{margin-left:auto;color:#9aa0a6;font-size:18px}
+
+  /* modal shell */
+  .tv-modal{position:fixed;inset:0;z-index:2147483000;display:none;align-items:flex-end;justify-content:center;background:rgba(15,17,21,.5);font-family:inherit;color:var(--ink)}
   .tv-modal.open{display:flex}
-  .tv-dialog{background:#fff;color:#16130f;border-radius:12px;max-width:560px;width:100%;max-height:92vh;overflow:auto;padding:20px;position:relative}
-  .tv-close{position:absolute;top:10px;right:14px;border:0;background:none;font-size:26px;cursor:pointer;line-height:1;color:#16130f}
-  .tv-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
-  .tv-grid img{width:100%;border-radius:8px;border:1px solid #ddd;aspect-ratio:3/4;object-fit:cover;background:#f4f4f4}
-  .tv-grid img[hidden]{display:none}
-  .tv-cta{display:block;width:100%;padding:12px;border:0;border-radius:8px;background:#16130f;color:#fff;font-size:16px;cursor:pointer;margin-top:8px}
-  .tv-cta[hidden]{display:none}
-  .tv-cta[disabled]{opacity:.5;cursor:not-allowed}
-  .tv-cta.alt{background:#2563eb}
-  .tv-msg{font-size:14px;margin-top:10px;min-height:20px}
-  .tv-msg.err{color:#b00020}
+  @media(min-width:640px){.tv-modal{align-items:center;padding:24px}}
+  .tv-panel{width:100%;max-width:480px;max-height:96vh;display:flex;flex-direction:column;background:#fff;border-radius:20px 20px 0 0;overflow:hidden}
+  @media(min-width:640px){.tv-panel{border-radius:20px;max-height:min(760px,94vh)}}
+  .tv-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 16px 10px}
+  .tv-head .ht{flex:1;min-width:0}
+  .tv-head h3{margin:0;font-size:20px;font-weight:700;letter-spacing:-.2px;display:flex;align-items:center;gap:7px}
+  .tv-head h3 .cbtn{font-size:12px;color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-weight:600}
+  .tv-head small{display:block;font-size:12.5px;color:var(--sub);margin-top:2px}
+  .tv-ib{flex:none;border:1px solid var(--line);background:#fff;width:38px;height:38px;border-radius:50%;cursor:pointer;display:grid;place-items:center;color:var(--ink)}
+  .tv-ib:hover{background:var(--hi)}
+  .tv-back{border:0;background:none;width:30px;padding:0;margin-right:2px}
+
+  .tv-body{overflow:auto;padding:12px 20px 22px;flex:1;background:#fff;-webkit-overflow-scrolling:touch}
+  .tv-view{display:none}
+  .tv-view.on{display:block;animation:tvIn .22s ease}
+  @keyframes tvIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  /* buttons */
+  .tv-pill{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:15px 16px;border:0;border-radius:999px;background:var(--accent);color:#fff;font-size:15.5px;font-weight:600;cursor:pointer;margin-top:14px}
+  .tv-pill:hover{opacity:.92}
+  .tv-pill[disabled]{opacity:.35;cursor:not-allowed}
+  .tv-pill.gray{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+  .tv-linkline{display:block;margin:14px auto 0;background:none;border:0;font-size:14.5px;color:var(--sub);cursor:pointer}
+  .tv-linkline:hover{color:var(--ink)}
+
+  /* consent */
+  .tv-consent-img{display:grid;place-items:center;background:var(--card);border-radius:16px;width:132px;height:132px;margin:18px auto 0;overflow:hidden}
+  .tv-consent-img img{max-width:78%;max-height:78%;object-fit:contain}
+  .tv-consent h4{margin:26px 0 6px;font-size:21px;text-align:center;letter-spacing:-.2px}
+  .tv-consent .sub{margin:0 6px;font-size:14px;color:var(--sub);text-align:center;line-height:1.5}
+  .tv-pts{list-style:none;margin:20px 4px 0;padding:0}
+  .tv-pts li{display:flex;gap:12px;align-items:flex-start;padding:10px 2px}
+  .tv-pts .pic{flex:none;display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--card);color:var(--ink);font-size:13px}
+  .tv-pts p{margin:2px 0 0;font-size:14.5px;line-height:1.45}
+  .tv-privacy{display:block;text-align:center;font-size:12.5px;color:var(--sub);margin-top:16px}
+  .tv-privacy a{color:var(--sub);text-decoration:underline}
+
+  /* upload */
+  .tv-drop{display:block;border:1.5px dashed #cfd3d8;border-radius:18px;padding:34px 18px;text-align:center;cursor:pointer;background:#fff;color:var(--sub);font-size:13.5px;transition:border-color .15s}
+  .tv-drop:hover{border-color:#9aa0a6}
+  .tv-drop .pl{display:grid;place-items:center;width:52px;height:52px;margin:0 auto 10px;border-radius:50%;background:var(--accent);color:#fff;font-size:24px;font-weight:300}
+  .tv-drop b{display:block;color:var(--ink);font-size:16px;margin-bottom:5px}
+  .tv-stage{position:relative;border-radius:18px;overflow:hidden;background:var(--card)}
+  .tv-stage img{display:block;width:100%;max-height:52vh;object-fit:contain}
+  .tv-stage small{position:absolute;left:10px;top:10px;background:rgba(15,17,21,.65);color:#fff;font-size:11px;border-radius:999px;padding:4px 10px}
+  .tv-note{font-size:12px;color:var(--sub);text-align:center;margin-top:10px;line-height:1.5}
+
+  /* progress */
+  .tv-prog{display:grid;place-items:center;gap:0;padding:34px 0 8px}
+  .tv-duo{display:flex;align-items:center;gap:10px}
+  .tv-duo .ph{width:92px;height:92px;border-radius:16px;background:var(--card);overflow:hidden;display:grid;place-items:center;border:1px solid var(--line)}
+  .tv-duo .ph img{width:100%;height:100%;object-fit:cover}
+  .tv-duo .sw{flex:none;width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:15px;animation:tvSpin 1.6s linear infinite}
+  @keyframes tvSpin{to{transform:rotate(360deg)}}
+  .tv-prog h4{margin:22px 0 0;font-size:19px;font-weight:600;text-align:center;letter-spacing:-.2px;min-height:26px}
+  .tv-bar{width:78%;height:5px;border-radius:99px;background:var(--line);margin-top:20px;overflow:hidden}
+  .tv-bar i{display:block;height:100%;width:0%;border-radius:99px;background:var(--ink);transition:width .5s ease}
+  .tv-pct{text-align:center;font-size:13px;color:var(--sub);margin-top:8px;min-height:18px}
+  .tv-tip{width:92%;background:var(--card);border-radius:14px;padding:14px 16px;margin:26px auto 0;text-align:center}
+  .tv-tip em{display:block;font-style:normal;font-size:10.5px;letter-spacing:1.2px;color:var(--sub);margin-bottom:5px}
+  .tv-tip p{margin:0;font-size:13.5px;color:var(--ink)}
+
+  /* result */
+  .tv-res{position:relative;border-radius:18px;overflow:hidden;background:var(--card)}
+  .tv-res img{display:block;width:100%;max-height:62vh;object-fit:cover}
+  .tv-res .ov{position:absolute;left:0;right:0;bottom:0;padding:38px 14px 12px;background:linear-gradient(180deg,transparent,rgba(15,17,21,.78))}
+  .tv-res .row{display:flex;align-items:center;gap:10px}
+  .tv-res .thumb{flex:none;width:46px;height:46px;border-radius:12px;border:2px solid #fff;background:var(--card);overflow:hidden}
+  .tv-res .thumb img{width:100%;height:100%;object-fit:cover}
+  .tv-res .meta{flex:1;min-width:0;color:#fff}
+  .tv-res meta{display:none}
+  .tv-res .meta b{display:block;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tv-res .meta small{display:flex;gap:8px;align-items:center;font-size:11px;opacity:.85;margin-top:3px}
+  .tv-res .mut{ text-decoration:line-through;opacity:.7}
+  .tv-res .badge{flex:none;display:flex;align-items:center;gap:5px;font-size:10px;letter-spacing:1px;background:rgba(255,255,255,.16);color:#fff;border-radius:999px;padding:5px 10px}
+  .tv-res .exp{flex:none;width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.2);color:#fff;display:grid;place-items:center;font-size:12px}
+  .tv-sharepic{display:flex;gap:10px;margin-top:12px}
+  .tv-sharepic .tv-pill{margin-top:0}
+  .tv-fdb{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px;font-size:13px;color:var(--sub)}
+  .tv-fdb button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:6px 14px;font-size:14px;cursor:pointer}
+  .tv-fdb button.on{background:var(--card)}
+
+  /* history */
+  .tv-hlist{display:flex;flex-direction:column;gap:14px}
+  .tv-tile{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#fff}
+  .tv-tile .im{position:relative;display:block}
+  .tv-tile .im img{width:100%;max-height:300px;object-fit:cover;display:block;background:var(--card)}
+  .tv-tile .exp{position:absolute;right:10px;bottom:10px;display:flex;align-items:center;gap:6px;background:rgba(15,17,21,.75);color:#fff;font-size:11.5px;border-radius:999px;padding:6px 11px}
+  .tv-tile .lab{display:flex;justify-content:space-between;align-items:center;padding:10px 14px 0;font-size:13.5px}
+  .tv-tile .lab b{font-weight:600}
+  .tv-tile .lab span{color:var(--sub);font-size:12px}
+  .tv-tile .tv-add{display:flex;align-items:center;justify-content:center;gap:8px;margin:10px 14px 0;padding:11px;border-radius:999px;background:var(--ink);color:#fff;font-size:14px;font-weight:600;border:0;cursor:pointer}
+  .tv-tile .tv-add:disabled{opacity:.4}
+  .tv-tile .act{display:flex;gap:8px;padding:10px 14px 14px}
+  .tv-tile .act a,.tv-tile .act button{flex:1;display:grid;place-items:center;gap:4px;border:1px solid var(--line);background:#fff;border-radius:12px;padding:9px 2px;font-size:11.5px;color:var(--ink);text-decoration:none;cursor:pointer;font-family:inherit}
+  .tv-empty{text-align:center;color:var(--sub);font-size:14px;padding:30px 8px}
+  .tv-errcolor{color:#b00020}
+  .tv-vis{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 </style>
 
+{%- comment %} variant data (for try-on history + cart sync) {% endcomment -%}
+<script type="application/json" id="tv-ctx-{{ product.id }}">
+  {
+    "variants": [
+      {%- for variant in product.variants -%}
+      {
+        "id": {{ variant.id | json }},
+        "title": {{ variant.title | json }},
+        "price": {{ variant.price | json }},
+        "priceFormatted": {{ variant.price | money | strip_html | json }},
+        "available": {{ variant.available | json }},
+        "imageUrl": {%- if variant.featured_image -%}{{ variant.featured_image | image_url: width: 1024 | json }}{%- elsif product.featured_image -%}{{ product.featured_image | image_url: width: 1024 | json }}{%- else -%}null{%- endif -%}
+      }{%- unless forloop.last -%},{%- endunless -%}
+      {%- endfor -%}
+    ]
+  }
+</script>
+
 <div class="tv-wrap" id="tv-{{ product.id }}"
-     data-api="{{ vto_api }}"
-     data-shop="{{ shop.permanent_domain }}"
+     data-api="https://tryvtri-vton.vercel.app"
      data-product-id="{{ product.id }}"
      data-product-title="{{ product.title | escape }}"
      data-category="{{ vto_category }}"
      data-variant-id="{{ vto_variant.id }}"
      data-available="{{ vto_variant.available }}"
      data-garment-url="{{ vto_garment_url }}"
-     data-price-cents="{{ vto_variant.price }}"
      data-price-formatted="{{ vto_variant.price | money | strip_html | escape }}"
-     data-currency="{{ cart.currency.iso_code | default: shop.currency }}">
+     data-privacy-url="https://fit.tryvtri.com/privacy">
 
-  <button type="button" class="tv-btn" data-open aria-haspopup="dialog">
-    <span class="tv-ico">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/><circle cx="12" cy="10.2" r="2.6"/><path d="M7.6 18c.6-2.6 2.4-4 4.4-4s3.8 1.4 4.4 4"/></svg>
+  <button type="button" class="tv-launch" data-open aria-haspopup="dialog">
+    <span class="ico">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="3.4"/><path d="M5 19c1.4-3 4-4.6 7-4.6s5.6 1.6 7 4.6"/></svg>
     </span>
-    <span><b>Try It On Me</b><small>See this {% if vto_category == 'accessories' %}item{% else %}garment{% endif %} on your photo in seconds</small></span>
+    <span><b>Try It On</b><small>See how it looks on you</small></span>
+    <span class="go">&rarr;</span>
   </button>
-  <div class="tv-credit">Powered by <a href="https://fit.tryvtri.com/" target="_blank" rel="noopener">TryVtri</a></div>
 
   <div class="tv-modal" data-modal role="dialog" aria-modal="true" aria-label="Virtual try-on">
-    <div class="tv-dialog">
-      <button type="button" class="tv-close" data-close aria-label="Close">&times;</button>
-      <h3 style="margin:0 0 4px">{{ product.title }}</h3>
-      <p style="margin:0;font-size:14px;color:#555">Upload a clear, front-facing, full-body photo.</p>
-      <input type="file" accept="image/jpeg,image/png,image/webp" data-file style="margin-top:12px">
-      <div class="tv-grid">
-        <img data-person alt="Your photo" hidden>
-        <img data-result alt="Try-on result" hidden>
+    <div class="tv-panel">
+      <div class="tv-head">
+        <button type="button" class="tv-ib tv-back" data-back hidden aria-label="Back">&#10094;</button>
+        <div class="ht">
+          <h3><span data-title>Try It On</span> <span class="cbtn" data-count hidden>0</span></h3>
+          <small data-subtitle>See how it looks on you</small>
+        </div>
+        <button type="button" class="tv-ib" data-history aria-label="Try-On history">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.4V12l3.2 2"/></svg>
+        </button>
+        <button type="button" class="tv-ib" data-close aria-label="Close">&times;</button>
       </div>
-      <button type="button" class="tv-cta" data-run disabled>Generate try-on</button>
-      <button type="button" class="tv-cta alt" data-cart hidden>Add to cart &ndash; <span data-price></span></button>
-      <div class="tv-msg" data-msg aria-live="polite"></div>
+
+      <div class="tv-body">
+
+        <!-- CONSENT -->
+        <div class="tv-view" data-view="consent">
+          <div class="tv-consent">
+            <div class="tv-consent-img"><img data-consent-img alt="{{ product.title | escape }}"></div>
+            <h4>Before your first try-on</h4>
+            <p class="sub">Here's what happens with your photo. We only ask once.</p>
+            <ul class="tv-pts">
+              <li><span class="pic">&#10022;</span><p>Your photo is sent to our secure AI service, only to create your try-on preview.</p></li>
+              <li><span class="pic">&#9707;</span><p>We keep basic usage data, like your number of try-ons, to run this service.</p></li>
+            </ul>
+            <div class="tv-privacy">By continuing, you agree to the <a data-privacy href="https://fit.tryvtri.com/privacy" target="_blank" rel="noopener">Try-On Privacy Policy</a>.</div>
+            <button type="button" class="tv-pill" data-agree>Agree and continue</button>
+            <button type="button" class="tv-linkline" data-notnow>Not now</button>
+          </div>
+        </div>
+
+        <!-- UPLOAD -->
+        <div class="tv-view" data-view="upload">
+          <label class="tv-drop" data-drop>
+            <span class="pl">+</span>
+            <b>Add your photo</b>
+            Clear, front-facing, full-body &middot; JPG, PNG or WebP &middot; max 10&nbsp;MB
+            <input type="file" accept="image/jpeg,image/png,image/webp" data-file>
+          </label>
+          <div class="tv-stage" data-stage hidden>
+            <img data-person alt="Your photo">
+            <small>1080&times;1080</small>
+          </div>
+          <button type="button" class="tv-pill" data-generate disabled>Generate my look</button>
+          <div class="tv-note" data-msg aria-live="polite">We'll show a preview you can drag to compare.</div>
+        </div>
+
+        <!-- PROGRESS -->
+        <div class="tv-view" data-view="progress">
+          <div class="tv-prog">
+            <div class="tv-duo">
+              <span class="ph"><img data-upimg alt="Your photo"></span>
+              <span class="sw">&#8646;</span>
+              <span class="ph"><img data-downimg alt="{{ product.title | escape }}"></span>
+            </div>
+            <h4 data-status>Understanding body shape&hellip;</h4>
+            <div class="tv-bar"><i data-bar></i></div>
+            <div class="tv-pct" data-pct>0%</div>
+            <div class="tv-tip"><em>TIP</em><p data-tip>Ensure good lighting in your photo</p></div>
+          </div>
+        </div>
+
+        <!-- RESULT -->
+        <div class="tv-view" data-view="result">
+          <div class="tv-res">
+            <img data-result alt="Your try-on look">
+            <div class="ov">
+              <div class="row">
+                <span class="thumb"><img data-thumb alt="Your photo"></span>
+                <span class="meta">
+                  <b data-rtitle>{{ product.title }}</b>
+                  <small><span class="mut" data-rsub></span><span data-rdate></span></small>
+                </span>
+                <span class="badge">AI MODIFIED <span style="font-size:9px">&#10022;</span></span>
+              </div>
+            </div>
+          </div>
+          <div class="tv-sharepic">
+            <button type="button" class="tv-pill" data-cart>Add to Cart &middot; <span data-price></span></button>
+          </div>
+          <button type="button" class="tv-pill gray" data-share>Share Look</button>
+          <button type="button" class="tv-pill" data-again style="color:#fff">Try another photo</button>
+          <div class="tv-fdb">
+            How realistic is this AI try-on?
+            <button type="button" data-fb="up" aria-label="Good">&#128077;</button>
+            <button type="button" data-fb="down" aria-label="Bad">&#128078;</button>
+          </div>
+        </div>
+
+        <!-- HISTORY -->
+        <div class="tv-view" data-view="history">
+          <div class="tv-hlist" data-hlist></div>
+        </div>
+
+      </div>
     </div>
   </div>
 </div>
 
-  <script type="application/json" id="tv-ctx-{{ product.id }}">
-    {
-      "variants": [
-        {%- for variant in product.variants -%}
-        {
-          "id": {{ variant.id | json }},
-          "price": {{ variant.price | json }},
-          "priceFormatted": {{ variant.price | money | strip_html | json }},
-          "available": {{ variant.available | json }},
-          "imageUrl": {%- if variant.featured_image -%}{{ variant.featured_image | image_url: width: 1024 | json }}{%- elsif product.featured_image -%}{{ product.featured_image | image_url: width: 1024 | json }}{%- else -%}null{%- endif -%}
-        }{%- unless forloop.last -%},{%- endunless -%}
-        {%- endfor -%}
-      ]
-    }
-  </script>
+<script>
+(function () {
+  var ID = '{{ product.id }}';
+  var root = document.getElementById('tv-' + ID);
+  if (!root) { console.error('[TryVtri] root not found'); return; }
+  var modal = root.querySelector('[data-modal]');
+  var $ = function (s) { return modal.querySelector(s); };
 
-  <script>
-  (function () {
-    var root = document.getElementById('tv-{{ product.id }}');
-    if (!root) { console.error('[TryVtri] root not found'); return; }
-    var $ = function (s) { return root.querySelector(s); };
+  var ctx = { variants: [] };
+  try { ctx = JSON.parse(document.getElementById('tv-ctx-' + ID).textContent); } catch (e) {}
 
-    var modal = $('[data-modal]'), file = $('[data-file]'), run = $('[data-run]'),
-        cartBtn = $('[data-cart]'), msg = $('[data-msg]'),
-        personImg = $('[data-person]'), resultImg = $('[data-result]'),
-        priceEl = $('[data-price]');
+  var els = {};
+  ['[data-file]','[data-drop]','[data-stage]','[data-person]','[data-msg]','[data-generate]',
+   '[data-upimg]','[data-downimg]','[data-status]','[data-bar]','[data-pct]','[data-tip]',
+   '[data-result]','[data-thumb]','[data-rtitle]','[data-rsub]','[data-rdate]','[data-price]',
+   '[data-cart]','[data-msg2]','[data-hlist]','[data-count]','[data-title]','[data-subtitle]',
+   '[data-back]','[data-consent-img]','[data-histbtn]'
+  ].forEach(function (sel) { els[sel.replace(/\[data-|\]/g, '')] = modal.querySelector(sel); });
+  var histBtn = root.querySelector('[data-history]');
+  els.histbtn = histBtn;
 
-    var ctx = { variants: [] };
-    try { ctx = JSON.parse(document.getElementById('tv-ctx-{{ product.id }}').textContent); }
-    catch (e) { console.warn('[TryVtri] variant data unavailable', e); }
+  var HKEY = 'tv_tries_' + ID;
+  var photoDataUrl = null, photoFile = null, current = null, view = 'consent', tries = [], pTimer = null, tipTimer = null;
 
-    var photoDataUrl = null, resultReady = false;
+  /* ---------- helpers ---------- */
+  function say(t, err) { els.msg.textContent = t || ''; els.msg.className = 'tv-note' + (err ? ' tv-errcolor' : ''); }
+  function norm(u) {
+    if (!u) return '';
+    u = String(u).trim();
+    if (u.indexOf('//') === 0) return 'https:' + u;
+    if (u.indexOf('http') !== 0) { try { u = new URL(u, location.origin).href; } catch (e) {} }
+    return u;
+  }
+  function garments() { return norm(root.dataset.garmentUrl); }
+  function consents() { try { return localStorage.getItem('tv_consent') === '1'; } catch (e) { return false; } }
+  function loadTries() { try { tries = JSON.parse(localStorage.getItem(HKEY) || '[]'); } catch (e) { tries = []; } }
+  function saveTries() { try { localStorage.setItem(HKEY, JSON.stringify(tries.slice(0, 20))); } catch (e) {} }
+  function money() { return root.dataset.priceFormatted; }
 
-    function say(t, err) { msg.textContent = t || ''; msg.className = 'tv-msg' + (err ? ' err' : ''); }
-    function isAvailable() { return root.dataset.available === 'true'; }
-    function refreshCartBtn() { cartBtn.hidden = !(resultReady && isAvailable()); }
+  var VIEWS = { consent: ['Try It On', 'See how it looks on you'], upload: ['Try It On', 'See how it looks on you'], progress: ['Try It On', 'Hang tight — a few seconds'], result: ['Your Try-On', 'Result'], history: ['Your Try-Ons', 'Results'] };
+  function show(v) {
+    view = v;
+    modal.querySelectorAll('.tv-view').forEach(function (el) { el.classList.toggle('on', el.getAttribute('data-view') === v); });
+    els.title.textContent = VIEWS[v][0];
+    els.subtitle.textContent = VIEWS[v][1];
+    els.back.hidden = v !== 'history';
+    els.count.hidden = !(tries.length && v === 'result');
+    els.count.textContent = tries.length;
+    els.histbtn.style.display = (tries.length && (v === 'result' || v === 'upload' || v === 'progress')) ? 'grid' : 'none';
+  }
 
-  $('[data-open]').addEventListener('click', function () {
+  function open() {
     if (modal.parentNode !== document.body) document.body.appendChild(modal);
-    priceEl.textContent = root.dataset.priceFormatted;
     modal.classList.add('open');
-  });
-  function close() { modal.classList.remove('open'); }
-  $('[data-close]').addEventListener('click', close);
+    document.documentElement.style.overflow = 'hidden';
+    els['consent-img'] && (els['consent-img'].src = garments());
+    show(consents() ? 'upload' : 'consent');
+  }
+  function close() {
+    modal.classList.remove('open');
+    document.documentElement.style.overflow = '';
+  }
+
+  /* ---------- flow ---------- */
+  root.querySelector('[data-open]').addEventListener('click', open);
+  modal.querySelector('[data-close]').addEventListener('click', close);
   modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
-
-  file.addEventListener('change', function () {
-    var f = file.files[0] || null;
-    if (!f) { photoDataUrl = null; run.disabled = true; return; }
-    if (f.size > 10 * 1024 * 1024) { say('Photo is too large (max 10 MB).', true); photoDataUrl = null; run.disabled = true; return; }
-    var reader = new FileReader();
-    reader.onload = function (e) {
-      photoDataUrl = e.target.result;
-      personImg.src = photoDataUrl; personImg.hidden = false;
-      run.disabled = false; say('');
-    };
-    reader.readAsDataURL(f);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && modal.classList.contains('open')) close(); });
+  modal.querySelector('[data-agree]').addEventListener('click', function () {
+    try { localStorage.setItem('tv_consent', '1'); } catch (e) {}
+    show('upload');
   });
+  modal.querySelector('[data-notnow]').addEventListener('click', close);
+  modal.querySelector('[data-back]').addEventListener('click', function () { show('result'); });
+  modal.querySelector('[data-privacy]').href = root.dataset.privacyUrl;
 
-  // Portrait of robustness: accept a bare domain OR a value that already includes /api/try-on
-  var API_BASE = (root.dataset.api || 'https://tryvtri-vton.vercel.app').trim().replace(/\/+$/, '');
-  API_BASE = API_BASE.replace(/\/(api\/try-on|try-on)$/, '');
+  els['file'].addEventListener('change', function () {
+    var f = els['file'].files[0];
+    if (!f) return;
+    if (f.size > 10 * 1024 * 1024) { say('Photo is too large (max 10 MB).', true); return; }
+    photoFile = f;
+    var fr = new FileReader();
+    fr.onload = function (ev) {
+      photoDataUrl = ev.target.result;
+      els.person.src = photoDataUrl;
+      els['upimg'].src = photoDataUrl;
+      els['downimg'].src = garments();
+      els.stage.hidden = false; els.drop.hidden = true;
+      els.generate.disabled = false;
+      say("We'll show a preview you can drag to compare.");
+    };
+    fr.readAsDataURL(f);
+  });
+  els.stage.addEventListener('click', function (e) { e.preventDefault(); els['file'].click(); });
 
-  run.addEventListener('click', async function () {
+  els.generate.addEventListener('click', async function () {
     if (!photoDataUrl) return;
-    run.disabled = true; resultReady = false; refreshCartBtn(); resultImg.hidden = true;
-    say('Generating your try-on… this can take 20–60 seconds.');
+    els.generate.disabled = true; say('');
+    show('progress');
 
-    function toAbsoluteUrl(u) {
-      if (!u) return '';
-      u = u.trim();
-      if (u.indexOf('//') === 0) return 'https:' + u;
-      if (u.indexOf('http://') === 0 || u.indexOf('https://') === 0) return u;
-      try { return new URL(u, location.origin).href; } catch (e) { return 'https://' + u.replace(/^\/+/, ''); }
-    }
+    /* animated progress */
+    var pct = 0;
+    els.bar.style.width = '0%'; els.pct.textContent = '0%';
+    var STATUS = ['Understanding body shape\u2026', 'Draping the fabric\u2026', 'Matching light & shadow\u2026', 'Final touches\u2026'];
+    var TIPS = ['Ensure good lighting in your photo', 'Stand facing the camera', 'Full-body shots look best', 'Keep your pose natural, arms slightly away from the body'];
+    var si = 0, ti = 0;
+    els.status.textContent = STATUS[0]; els.tip.textContent = TIPS[0];
+    clearInterval(pTimer); clearInterval(tipTimer);
+    pTimer = setInterval(function () {
+      pct = Math.min(92, pct + 1 + Math.floor(Math.random() * 3));
+      els.bar.style.width = pct + '%'; els.pct.textContent = pct + '%';
+      if (pct % 12 === 0) { si = (si + 1) % STATUS.length; els.status.textContent = STATUS[si]; }
+      if (pct % 30 === 0) { ti = (ti + 1) % TIPS.length; els.tip.textContent = TIPS[ti]; }
+    }, 650);
+    tipTimer = setInterval(function () { ti = (ti + 1) % TIPS.length; els.tip.textContent = TIPS[ti]; }, 6500);
 
-    var garmentUrl = toAbsoluteUrl(root.dataset.garmentUrl);
-    console.log('[TryVtri] garment URL:', garmentUrl);
-    if (!garmentUrl) {
-      say('No garment image available for this product.', true);
-      run.disabled = false;
-      return;
-    }
+    var payload = {
+      image_base64: photoDataUrl,
+      garment_url: garments(),
+      prompt: "The person wearing the EXACT garment shown — identical color, pattern, print, logo, texture, cut and proportions. Keep the person's face, expression, hairstyle and skin tone identical and clearly visible. Photorealistic fabric, studio lighting, fashion catalog quality.",
+      guidance_scale: 2.5,
+      num_inference_steps: 40,
+      output_format: "png"
+    };
 
     try {
-      var payload = {
-        image_base64: photoDataUrl,
-        garment_url: garmentUrl,
-        prompt: "A person wearing the garment, virtual try-on, photorealistic, high detail",
-        guidance_scale: 2.5,
-        num_inference_steps: 40,
-        acceleration: "regular",
-        enable_safety_checker: true,
-        output_format: "png",
-        num_images: 1,
-        lora_scale: 1,
-        sync_mode: false
-      };
-
-      var res = await fetch(API_BASE + '/api/try-on', {
+      var res = await fetch(norm(root.dataset.api) + '/api/try-on', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-
-      var raw = await res.text();
-      var data = {};
-      try { data = JSON.parse(raw); } catch (e) { console.warn('[TryVtri] non-JSON response:', raw.slice(0, 300)); }
+      var raw = await res.text(), data = {};
+      try { data = JSON.parse(raw); } catch (e) {}
       console.log('[TryVtri] response', res.status, data);
-
       if (!res.ok) {
-        var detail = data.error || data.message;
-        if (!detail && data.detail) detail = (typeof data.detail === 'string') ? data.detail : JSON.stringify(data.detail);
-        throw new Error(detail || ('Request failed (' + res.status + ')'));
+        var d = data.error || data.detail || data.message;
+        throw new Error((typeof d === 'string' && d) ? d : ('Request failed (' + res.status + ')'));
       }
-
-      var images = data.images || [];
       var out = null;
-      if (images.length > 0 && images[0].url) out = images[0].url;
-      if (!out) throw new Error('No image returned from the try-on service.');
+      if (data.images && data.images.length && data.images[0] && data.images[0].url) out = data.images[0].url;
+      out = out || data.image_url || data.url || data.result_url;
+      if (!out) throw new Error('No image returned.');
 
-      resultImg.src = out; resultImg.hidden = false;
-      resultReady = true; refreshCartBtn(); say('');
+      clearInterval(pTimer); clearInterval(tipTimer);
+      els.bar.style.width = '100%'; els.pct.textContent = '100%';
+
+      els.result.src = out;
+      els.thumb.src = photoDataUrl;
+      current = { src: out, person: photoDataUrl, garment: garments(), title: root.dataset.productTitle, variantId: root.dataset.variantId, price: money(), ts: Date.now() };
+      tries.unshift(current); saveTries();
+      els.rtitle.textContent = current.title;
+      els.rsub.textContent = current.price;
+      els.rdate.textContent = new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      els.price.textContent = money();
+      els.cart.disabled = root.dataset.available !== 'true';
+      els.cart.hidden = false;
+      show('result');
+      /* clean up */
+      els['file'].value = ''; photoFile = null; photoDataUrl = null;
+      els.stage.hidden = true; els.drop.hidden = false;
     } catch (err) {
       console.error('[TryVtri]', err);
-      var m = err && err.message || '';
-      if (m === 'Failed to fetch') m = 'Could not reach the try-on service. Check your connection and try again.';
+      clearInterval(pTimer); clearInterval(tipTimer);
+      show('upload');
+      var m = (err && err.message) || '';
+      if (m === 'Failed to fetch') m = 'Could not reach the try-on service. Hard-refresh (Ctrl+Shift+R) and try again.';
       say(m || 'Something went wrong. Please try again.', true);
     } finally {
-      run.disabled = false;
+      els.generate.disabled = !photoDataUrl;
     }
   });
 
-  cartBtn.addEventListener('click', async function () {
-    cartBtn.disabled = true;
+  modal.querySelector('[data-again]').addEventListener('click', function () {
+    els.result.removeAttribute('src');
+    show('upload');
+  });
+
+  /* ---------- share / cart / feedback ---------- */
+  modal.querySelector('[data-share]').addEventListener('click', async function () {
+    if (!current) return;
+    try {
+      if (navigator.share) { await navigator.share({ title: 'My try-on look', text: current.title + ' — try it on!', url: current.src }); }
+      else { await navigator.clipboard.writeText(current.src); say('Look link copied to clipboard.'); }
+    } catch (e) {}
+  });
+
+  els.cart.addEventListener('click', async function () {
+    els.cart.disabled = true;
     try {
       var base = (window.Shopify && Shopify.routes && Shopify.routes.root) ? Shopify.routes.root : '/';
       var r = await fetch(base + 'cart/add.js', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: [{ id: Number(root.dataset.variantId), quantity: 1 }] })
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: [{ id: Number(current.variantId || root.dataset.variantId), quantity: 1 }] })
       });
       if (!r.ok) throw new Error('Could not add to cart');
-      say('Added to cart!');
+      els.cart.innerHTML = '&check; Added to cart';
       document.dispatchEvent(new CustomEvent('cart:refresh'));
+      setTimeout(function () { els.cart.textContent = 'Add to Cart \u00B7 ' + money(); }, 1800);
     } catch (e) { say(e.message, true); }
-    cartBtn.disabled = false;
+    els.cart.disabled = root.dataset.available !== 'true';
   });
 
-  // ---- universal variant / price / garment sync (theme-agnostic, no tokens) ----
+  modal.querySelectorAll('[data-fb]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      modal.querySelectorAll('[data-fb]').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+    });
+  });
+
+  /* ---------- history ---------- */
+  histBtn.addEventListener('click', function () { show('history'); renderHistory(); });
+
+  function renderHistory() {
+    els.hlist.innerHTML = '';
+    if (!tries.length) { els.hlist.innerHTML = '<div class="tv-empty">No try-ons yet.</div>'; return; }
+    tries.forEach(function (h, i) {
+      var tile = document.createElement('div'); tile.className = 'tv-tile';
+      var im = document.createElement('a'); im.className = 'im'; im.href = h.src; im.target = '_blank'; im.rel = 'noopener';
+      var img = document.createElement('img'); img.src = h.garment || h.src; img.alt = 'Look';
+      var ex = document.createElement('span'); ex.className = 'exp'; ex.innerHTML = '&#8981; Expand';
+      im.appendChild(img); im.appendChild(ex); tile.appendChild(im);
+      var lab = document.createElement('div'); lab.className = 'lab';
+      var b = document.createElement('b'); b.textContent = h.title;
+      var d = document.createElement('span'); d.textContent = new Date(h.ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      lab.appendChild(b); lab.appendChild(d); tile.appendChild(lab);
+      var add = document.createElement('button'); add.className = 'tv-add'; add.type = 'button';
+      add.textContent = 'Add To Cart \u2014 ' + h.price;
+      add.addEventListener('click', function () { quickAdd(h.variantId, add); });
+      tile.appendChild(add);
+      var act = document.createElement('div'); act.className = 'act';
+      function mk(tag, label, icon) {
+        var a = document.createElement(tag); a.innerHTML = '<div>' + icon + '</div>' + label; return a;
+      }
+      var sh = mk('button', 'Share', '&#128640;');
+      sh.addEventListener('click', function () {
+        if (navigator.share) navigator.share({ title: 'My look', url: h.src }).catch(function () {});
+        else navigator.clipboard.writeText(h.src).catch(function () {});
+      });
+      var sv = mk('a', 'Save', '&#9660;'); sv.href = h.src; sv.download = 'my-look.png'; sv.target = '_blank'; sv.rel = 'noopener';
+      var vw = mk('a', 'View', '&#8734;'); vw.href = h.src; vw.target = '_blank'; vw.rel = 'noopener';
+      var dl = mk('button', 'Delete', '&#128465;');
+      dl.addEventListener('click', function () { tries.splice(i, 1); saveTries(); renderHistory(); });
+      act.appendChild(sh); act.appendChild(sv); act.appendChild(vw); act.appendChild(dl);
+      tile.appendChild(act);
+      els.hlist.appendChild(tile);
+    });
+  }
+
+  function quickAdd(variantId, btn) {
+    btn.disabled = true; btn.textContent = 'Adding\u2026';
+    fetch('/cart/add.js', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: [{ id: Number(variantId), quantity: 1 }] })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('Could not add to cart');
+      btn.textContent = '\u2713 Added';
+      document.dispatchEvent(new CustomEvent('cart:refresh'));
+    }).catch(function () { btn.textContent = 'Try again'; })
+     .finally(function () { setTimeout(function () { btn.textContent = 'Add To Cart \u2014 ' + (btn.dataset.p || ''); btn.disabled = false; }, 1600); });
+  }
+
+  /* ---------- variant / garment sync ---------- */
   function applyVariant(id) {
     id = String(id);
     for (var i = 0; i < ctx.variants.length; i++) {
       var v = ctx.variants[i];
       if (String(v.id) === id) {
         root.dataset.variantId = v.id;
-        root.dataset.priceCents = v.price;
-        root.dataset.priceFormatted = v.priceFormatted;
         root.dataset.available = String(v.available);
-        if (v.imageUrl) root.dataset.garmentUrl = v.imageUrl;
-        priceEl.textContent = v.priceFormatted;
-        refreshCartBtn();
+        root.dataset.priceFormatted = v.priceFormatted;
+        if (v.imageUrl) root.dataset.garmentUrl = v.imageUrl; // keep Shopify CDN, dynamic
+        els.price && (els.price.textContent = v.priceFormatted);
         return;
       }
     }
@@ -275,34 +581,20 @@
   function currentId() {
     var m = location.search.match(/[?&]variant=(\d+)/);
     if (m) return m[1];
-    var sv = document.querySelector('[data-selected-variant]');
-    if (sv) { var val = sv.getAttribute('data-selected-variant') || sv.value; if (val) return String(val); }
-    var form = document.querySelector('form[action*="/cart/add"]');
-    if (form) {
-      var sel = form.querySelector('select[name="id"]'); if (sel && sel.value) return sel.value;
-      var inp = form.querySelector('input[name="id"]'); if (inp && inp.value) return inp.value;
-      var rad = form.querySelector('input[name="id"]:checked'); if (rad) return rad.value;
-    }
+    var input = document.querySelector('form[action*="/cart/add"] [name="id"]');
+    if (input && input.value) return input.value;
     return null;
   }
-  function syncFromDom() { var id = currentId(); if (id) applyVariant(id); }
-
-  document.addEventListener('change', syncFromDom);
+  document.addEventListener('change', function (e) { if (modal.contains(e.target)) return; var id = currentId(); if (id) applyVariant(id); });
   document.addEventListener('variant:change', function (e) {
     var id = (e.detail && e.detail.variant && e.detail.variant.id) || currentId();
     if (id) applyVariant(id);
   });
-  document.addEventListener('product:variant-change', function (e) {
-    var id = (e.detail && (e.detail.variantId || e.detail.id)) || currentId();
-    if (id) applyVariant(id);
-  });
-  window.addEventListener('popstate', syncFromDom);
+  window.addEventListener('popstate', function () { var id = currentId(); if (id) applyVariant(id); });
   var rs = history.replaceState;
-  history.replaceState = function () { var r = rs.apply(this, arguments); syncFromDom(); return r; };
-  var svNode = document.querySelector('[data-selected-variant]');
-  if (svNode && window.MutationObserver) {
-    new MutationObserver(syncFromDom).observe(svNode, { attributes: true, attributeFilter: ['data-selected-variant'] });
-  }
+  history.replaceState = function () { var r = rs.apply(this, arguments); var id = currentId(); if (id) applyVariant(id); return r; };
+
+  loadTries();
+  console.log('[TryVtri] Try It On ready');
 })();
 </script>
-{%- endif -%}

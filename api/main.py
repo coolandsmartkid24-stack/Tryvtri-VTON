@@ -182,7 +182,12 @@ async def try_on(request: Request):
         if not garment_url:
             raise HTTPException(status_code=400, detail="garment_url is required")
 
-        final_prompt = req.prompt or "A person wearing the garment, virtual try-on, photorealistic, high detail"
+        final_prompt = req.prompt or (
+            "Photorealistic virtual try-on: the person wearing the EXACT garment from the garment image — "
+            "preserve the garment's original color, pattern, print, logo, texture, cut and proportions precisely as shown. "
+            "Keep the person's face, facial features, expression, hairstyle and skin tone completely unchanged and clearly visible, "
+            "natural fabric folds and draping, realistic studio lighting, sharp focus, high resolution, standard fashion try-on pose"
+        )
 
         arguments: Dict[str, Any] = {
             "image_urls": [req.image_base64, garment_url],
