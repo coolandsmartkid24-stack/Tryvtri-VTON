@@ -105,22 +105,42 @@
   </div>
 </div>
 
-<script>
-(function () {
-  var root = document.getElementById('tv-{{ product.id }}');
-  if (!root) { console.error('[TryVtri] root not found'); return; }
-  var $ = function (s) { return root.querySelector(s); };
+  <script type="application/json" id="tv-ctx-{{ product.id }}">
+    {
+      "variants": [
+        {%- for variant in product.variants -%}
+        {
+          "id": {{ variant.id | json }},
+          "price": {{ variant.price | json }},
+          "priceFormatted": {{ variant.price | money | strip_html | json }},
+          "available": {{ variant.available | json }},
+          "imageUrl": {%- if variant.featured_image -%}{{ variant.featured_image | image_url: width: 1024 | json }}{%- elsif product.featured_image -%}{{ product.featured_image | image_url: width: 1024 | json }}{%- else -%}null{%- endif -%}
+        }{%- unless forloop.last -%},{%- endunless -%}
+        {%- endfor -%}
+      ]
+    }
+  </script>
 
-  var modal = $('[data-modal]'), file = $('[data-file]'), run = $('[data-run]'),
-      cartBtn = $('[data-cart]'), msg = $('[data-msg]'),
-      personImg = $('[data-person]'), resultImg = $('[data-result]'),
-      priceEl = $('[data-price]');
+  <script>
+  (function () {
+    var root = document.getElementById('tv-{{ product.id }}');
+    if (!root) { console.error('[TryVtri] root not found'); return; }
+    var $ = function (s) { return root.querySelector(s); };
 
-  var photoDataUrl = null, resultReady = false;
+    var modal = $('[data-modal]'), file = $('[data-file]'), run = $('[data-run]'),
+        cartBtn = $('[data-cart]'), msg = $('[data-msg]'),
+        personImg = $('[data-person]'), resultImg = $('[data-result]'),
+        priceEl = $('[data-price]');
 
-  function say(t, err) { msg.textContent = t || ''; msg.className = 'tv-msg' + (err ? ' err' : ''); }
-  function isAvailable() { return root.dataset.available === 'true'; }
-  function refreshCartBtn() { cartBtn.hidden = !(resultReady && isAvailable()); }
+    var ctx = { variants: [] };
+    try { ctx = JSON.parse(document.getElementById('tv-ctx-{{ product.id }}').textContent); }
+    catch (e) { console.warn('[TryVtri] variant data unavailable', e); }
+
+    var photoDataUrl = null, resultReady = false;
+
+    function say(t, err) { msg.textContent = t || ''; msg.className = 'tv-msg' + (err ? ' err' : ''); }
+    function isAvailable() { return root.dataset.available === 'true'; }
+    function refreshCartBtn() { cartBtn.hidden = !(resultReady && isAvailable()); }
 
   $('[data-open]').addEventListener('click', function () {
     if (modal.parentNode !== document.body) document.body.appendChild(modal);
@@ -225,6 +245,55 @@
     } catch (e) { say(e.message, true); }
     cartBtn.disabled = false;
   });
+
+  // ---- universal variant / price / garment sync (theme-agnostic, no tokens) ----
+  function applyVariant(id) {
+    id = String(id);
+    for (var i = 0; i < ctx.variants.length; i++) {
+      var v = ctx.variants[i];
+      if (String(v.id) === id) {
+        root.dataset.variantId = v.id;
+        root.dataset.priceCents = v.price;
+        root.dataset.priceFormatted = v.priceFormatted;
+        root.dataset.available = String(v.available);
+        if (v.imageUrl) root.dataset.garmentUrl = v.imageUrl;
+        priceEl.textContent = v.priceFormatted;
+        refreshCartBtn();
+        return;
+      }
+    }
+  }
+  function currentId() {
+    var m = location.search.match(/[?&]variant=(\d+)/);
+    if (m) return m[1];
+    var sv = document.querySelector('[data-selected-variant]');
+    if (sv) { var val = sv.getAttribute('data-selected-variant') || sv.value; if (val) return String(val); }
+    var form = document.querySelector('form[action*="/cart/add"]');
+    if (form) {
+      var sel = form.querySelector('select[name="id"]'); if (sel && sel.value) return sel.value;
+      var inp = form.querySelector('input[name="id"]'); if (inp && inp.value) return inp.value;
+      var rad = form.querySelector('input[name="id"]:checked'); if (rad) return rad.value;
+    }
+    return null;
+  }
+  function syncFromDom() { var id = currentId(); if (id) applyVariant(id); }
+
+  document.addEventListener('change', syncFromDom);
+  document.addEventListener('variant:change', function (e) {
+    var id = (e.detail && e.detail.variant && e.detail.variant.id) || currentId();
+    if (id) applyVariant(id);
+  });
+  document.addEventListener('product:variant-change', function (e) {
+    var id = (e.detail && (e.detail.variantId || e.detail.id)) || currentId();
+    if (id) applyVariant(id);
+  });
+  window.addEventListener('popstate', syncFromDom);
+  var rs = history.replaceState;
+  history.replaceState = function () { var r = rs.apply(this, arguments); syncFromDom(); return r; };
+  var svNode = document.querySelector('[data-selected-variant]');
+  if (svNode && window.MutationObserver) {
+    new MutationObserver(syncFromDom).observe(svNode, { attributes: true, attributeFilter: ['data-selected-variant'] });
+  }
 })();
 </script>
 {%- endif -%}
