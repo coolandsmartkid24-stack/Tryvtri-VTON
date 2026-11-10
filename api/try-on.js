@@ -22,7 +22,7 @@
  */
 
 const FAL_MODEL = "fal-ai/flux-2-lora-gallery/virtual-tryon";
-const QUEUE_BASE = "https://queue.fal.run";
+const FAL_API_BASE = "https://fal.run";
 
 function corsHeaders() {
   return {
@@ -31,10 +31,6 @@ function corsHeaders() {
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Content-Type": "application/json",
   };
-}
-
-async function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export default async function handler(req, res) {
@@ -84,6 +80,7 @@ export default async function handler(req, res) {
       prompt ||
       "A person wearing the garment, virtual try-on, photorealistic, high detail";
 
+    // fal.ai run() sends input directly as JSON body (not wrapped in { input: ... })
     const input = {
       image_urls: [image_base64, garment_url],
       prompt: finalPrompt,
@@ -99,68 +96,21 @@ export default async function handler(req, res) {
       ...(seed !== undefined ? { seed } : {}),
     };
 
-    // Step 1: Submit request — fal.ai wraps input in { input: {...} }
-    const submitResp = await fetch(`${QUEUE_BASE}/${FAL_MODEL}`, {
+    const runResp = await fetch(`${FAL_API_BASE}/${FAL_MODEL}`, {
       method: "POST",
       headers: {
         Authorization: `Key ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ input }),
+      body: JSON.stringify(input),
     });
 
-    if (!submitResp.ok) {
-      const errText = await submitResp.text();
-      throw new Error(`Fal submit failed: ${submitResp.status} ${errText}`);
+    if (!runResp.ok) {
+      const errText = await runResp.text();
+      throw new Error(`Fal API failed: ${runResp.status} ${errText}`);
     }
 
-    const submitData = await submitResp.json();
-    const requestId = submitData.request_id;
-    const statusUrl = submitData.status_url;
-    const responseUrl = submitData.response_url;
-
-    if (!requestId || !statusUrl || !responseUrl) {
-      throw new Error("Missing request_id/status_url/response_url from fal.ai submit");
-    }
-
-    // Step 2: Poll status_url until completed
-    let result;
-    for (let i = 0; i < 120; i++) {
-      const statusResp = await fetch(statusUrl, {
-        headers: {
-          Authorization: `Key ${apiKey}`,
-        },
-      });
-
-      if (!statusResp.ok) {
-        throw new Error(`Fal status check failed: ${statusResp.status}`);
-      }
-
-      const statusData = await statusResp.json();
-
-      if (statusData.status === "completed" || statusData.status === "COMPLETED") {
-        break;
-      }
-
-      if (statusData.status === "failed" || statusData.status === "FAILED") {
-        throw new Error(`Fal inference failed: ${JSON.stringify(statusData)}`);
-      }
-
-      await sleep(1000);
-    }
-
-    // Step 3: Fetch result from response_url
-    const resultResp = await fetch(responseUrl, {
-      headers: {
-        Authorization: `Key ${apiKey}`,
-      },
-    });
-
-    if (!resultResp.ok) {
-      throw new Error(`Fal result fetch failed: ${resultResp.status}`);
-    }
-
-    result = await resultResp.json();
+    const result = await runResp.json();
 
     res.status(200).json({
       images: result.images || [],
